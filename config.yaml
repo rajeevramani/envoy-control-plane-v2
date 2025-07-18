@@ -1,0 +1,11 @@
+server:
+  rest_port: 8080
+  xds_port: 18000
+  host: "0.0.0.0"
+
+envoy:
+  config_dir: "./configs"
+  admin_port: 9901
+
+logging:
+  level: "info"

@@ -1,0 +1,66 @@
+### Health Check
+GET http://127.0.0.1:8080/health
+
+### Create Cluster
+
+# @name cluster
+POST http://127.0.0.1:8080/clusters
+Content-Type: application/json
+
+{
+  "name": "httpbin-service",
+  "endpoints": [
+    {
+      "host": "httpbin.org",
+      "port": 80
+    }
+  ]
+}
+
+### Create Cluster Id
+@clusterId = {{cluster.response.body.$.data}}
+
+### Get Clusters
+GET http://127.0.0.1:8080/clusters
+
+### Get Cluster
+GET http://127.0.0.1:8080/clusters/{{clusterId}}
+
+
+### Create Route
+
+# @name route
+POST http://127.0.0.1:8080/routes
+Content-Type: application/json
+
+{
+  "path": "/get",
+  "cluster_name": "{{clusterId}}",
+  "prefix_rewrite": "/get"
+}
+
+@routeId = {{route.response.body.$.data}}
+
+### Get Routes
+GET http://127.0.0.1:8080/routes
+
+### Get Route
+GET http://127.0.0.1:8080/routes/{{routeId}}
+
+### Generate envoy config
+POST http://127.0.0.1:8080/generate-config
+Content-Type: application/json
+
+{
+    "proxy_name": "envoy-proxy-1", 
+    "proxy_port": 10000
+}
+
+### Make api call
+GET http://localhost:10000/get 
+
+### Delete Route
+DELETE  http://127.0.0.1:8080/routes/{{routeId}}
+
+### Delete cluster
+DELETE  http://127.0.0.1:8080/clusters/{{clusterId}}

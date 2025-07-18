@@ -42,10 +42,13 @@ tonic-build = "0.12"
 tonic-reflection = "0.12"
 prost = "0.13"
 prost-types = "0.13"
+envoy-types = "0.6.0"
 
 [dev-dependencies]
 # Testing
 tokio-test = "0.4"
+tower-test = "0.4"
+serial_test = "3.0"
 
 [build-dependencies]
 tonic-build = "0.12"

@@ -18,11 +18,11 @@ async fn main() -> anyhow::Result<()> {
     let config = AppConfig::load()?;
     let store = ConfigStore::new();
     
-    // Create API router
-    let app = api::create_router(store.clone());
-    
     // Create xDS server
     let xds_server = xds::SimpleXdsServer::new(store.clone());
+    
+    // Create API router with both store and xDS server
+    let app = api::create_router(store.clone(), xds_server.clone());
     
     // Start both servers concurrently
     let rest_addr = format!("{}:{}", config.server.host, config.server.rest_port);

@@ -30,16 +30,11 @@ static_resources:
         typed_config:
           "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
           stat_prefix: ingress_http
-          route_config:
-            name: local_route
-            virtual_hosts:
-            - name: local_service
-              domains: ["*"]
-              routes:
-              - match:
-                  prefix: "/"
-                route:
-                  cluster: test_cluster
+          rds:
+            config_source:
+              ads: {}
+              resource_api_version: V3
+            route_config_name: local_route
           http_filters:
           - name: envoy.filters.http.router
             typed_config:

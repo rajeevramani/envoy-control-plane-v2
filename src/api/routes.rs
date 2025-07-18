@@ -4,9 +4,18 @@ use axum::{
 };
 
 use crate::storage::ConfigStore;
+use crate::xds::SimpleXdsServer;
 use super::handlers;
 
-pub fn create_router(store: ConfigStore) -> Router {
+#[derive(Clone)]
+pub struct AppState {
+    pub store: ConfigStore,
+    pub xds_server: SimpleXdsServer,
+}
+
+pub fn create_router(store: ConfigStore, xds_server: SimpleXdsServer) -> Router {
+    let app_state = AppState { store, xds_server };
+    
     Router::new()
         // Route endpoints
         .route("/routes", post(handlers::create_route))
@@ -26,8 +35,8 @@ pub fn create_router(store: ConfigStore) -> Router {
         // Health check
         .route("/health", get(health_check))
         
-        // Share the store across all handlers
-        .with_state(store)
+        // Share the app state across all handlers
+        .with_state(app_state)
 }
 
 async fn health_check() -> &'static str {

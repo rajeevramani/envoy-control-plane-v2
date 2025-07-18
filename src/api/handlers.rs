@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::storage::{ConfigStore, Route, Cluster, Endpoint};
 use crate::envoy::ConfigGenerator;
 use crate::config::AppConfig;
+use crate::api::routes::AppState;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateRouteRequest {
@@ -55,45 +56,52 @@ impl<T> ApiResponse<T> {
 
 // Route handlers
 pub async fn create_route(
-    State(store): State<ConfigStore>,
+    State(app_state): State<AppState>,
     Json(payload): Json<CreateRouteRequest>,
 ) -> Result<Json<ApiResponse<String>>, StatusCode> {
     let route = Route::new(payload.path, payload.cluster_name, payload.prefix_rewrite);
-    let id = store.add_route(route);
+    let id = app_state.store.add_route(route);
+    
+    // Increment version to notify Envoy of the change
+    app_state.xds_server.increment_version();
     
     Ok(Json(ApiResponse::success(id, "Route created successfully")))
 }
 
 pub async fn get_route(
-    State(store): State<ConfigStore>,
+    State(app_state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<ApiResponse<Route>>, StatusCode> {
-    match store.get_route(&id) {
+    match app_state.store.get_route(&id) {
         Some(route) => Ok(Json(ApiResponse::success(route, "Route found"))),
         None => Err(StatusCode::NOT_FOUND),
     }
 }
 
 pub async fn list_routes(
-    State(store): State<ConfigStore>,
+    State(app_state): State<AppState>,
 ) -> Json<ApiResponse<Vec<Route>>> {
-    let routes = store.list_routes();
+    let routes = app_state.store.list_routes();
     Json(ApiResponse::success(routes, "Routes retrieved successfully"))
 }
 
 pub async fn delete_route(
-    State(store): State<ConfigStore>,
+    State(app_state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<ApiResponse<()>>, StatusCode> {
-    match store.remove_route(&id) {
-        Some(_) => Ok(Json(ApiResponse::success((), "Route deleted successfully"))),
+    match app_state.store.remove_route(&id) {
+        Some(_) => {
+            // Increment version to notify Envoy of the deletion
+            app_state.xds_server.increment_version();
+            Ok(Json(ApiResponse::success((), "Route deleted successfully")))
+        }
         None => Err(StatusCode::NOT_FOUND),
     }
 }
 
 // Cluster handlers
 pub async fn create_cluster(
-    State(store): State<ConfigStore>,
+    State(app_state): State<AppState>,
     Json(payload): Json<CreateClusterRequest>,
 ) -> Result<Json<ApiResponse<String>>, StatusCode> {
     let endpoints: Vec<Endpoint> = payload.endpoints
@@ -102,34 +110,41 @@ pub async fn create_cluster(
         .collect();
     
     let cluster = Cluster::new(payload.name, endpoints);
-    let name = store.add_cluster(cluster);
+    let name = app_state.store.add_cluster(cluster);
+    
+    // Increment version to notify Envoy of the change
+    app_state.xds_server.increment_version();
     
     Ok(Json(ApiResponse::success(name, "Cluster created successfully")))
 }
 
 pub async fn get_cluster(
-    State(store): State<ConfigStore>,
+    State(app_state): State<AppState>,
     Path(name): Path<String>,
 ) -> Result<Json<ApiResponse<Cluster>>, StatusCode> {
-    match store.get_cluster(&name) {
+    match app_state.store.get_cluster(&name) {
         Some(cluster) => Ok(Json(ApiResponse::success(cluster, "Cluster found"))),
         None => Err(StatusCode::NOT_FOUND),
     }
 }
 
 pub async fn list_clusters(
-    State(store): State<ConfigStore>,
+    State(app_state): State<AppState>,
 ) -> Json<ApiResponse<Vec<Cluster>>> {
-    let clusters = store.list_clusters();
+    let clusters = app_state.store.list_clusters();
     Json(ApiResponse::success(clusters, "Clusters retrieved successfully"))
 }
 
 pub async fn delete_cluster(
-    State(store): State<ConfigStore>,
+    State(app_state): State<AppState>,
     Path(name): Path<String>,
 ) -> Result<Json<ApiResponse<()>>, StatusCode> {
-    match store.remove_cluster(&name) {
-        Some(_) => Ok(Json(ApiResponse::success((), "Cluster deleted successfully"))),
+    match app_state.store.remove_cluster(&name) {
+        Some(_) => {
+            // Increment version to notify Envoy of the deletion
+            app_state.xds_server.increment_version();
+            Ok(Json(ApiResponse::success((), "Cluster deleted successfully")))
+        }
         None => Err(StatusCode::NOT_FOUND),
     }
 }
@@ -141,7 +156,7 @@ pub struct GenerateConfigRequest {
 }
 
 pub async fn generate_envoy_config(
-    State(store): State<ConfigStore>,
+    State(app_state): State<AppState>,
     Json(payload): Json<GenerateConfigRequest>,
 ) -> Result<Json<ApiResponse<String>>, StatusCode> {
     // Load app config (in a real app, this would be injected as state)
@@ -151,7 +166,7 @@ pub async fn generate_envoy_config(
     };
 
     // Generate Envoy configuration
-    let envoy_config = match ConfigGenerator::generate_config(&store, &app_config, payload.proxy_port) {
+    let envoy_config = match ConfigGenerator::generate_config(&app_state.store, &app_config, payload.proxy_port) {
         Ok(config) => config,
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };

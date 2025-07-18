@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package envoy.config.route.v3;
+
+// Route configuration for HTTP traffic
+message RouteConfiguration {
+  // The name of the route configuration
+  string name = 1;
+  
+  // Virtual hosts that define the routing rules
+  repeated VirtualHost virtual_hosts = 2;
+}
+
+// Virtual host configuration
+message VirtualHost {
+  // The logical name of the virtual host
+  string name = 1;
+  
+  // Domain names that this virtual host will match
+  repeated string domains = 2;
+  
+  // List of routes that will be matched in order
+  repeated Route routes = 3;
+}
+
+// Route specification
+message Route {
+  // Route matching parameters
+  RouteMatch match = 1;
+  
+  // Route action (where to send the request)
+  RouteAction route = 2;
+}
+
+// Route matching criteria
+message RouteMatch {
+  // Path matching
+  oneof path_specifier {
+    // Exact path match
+    string path = 1;
+    
+    // Prefix path match
+    string prefix = 2;
+  }
+}
+
+// Route action configuration
+message RouteAction {
+  // Cluster to route to
+  string cluster = 1;
+  
+  // Optional prefix rewrite
+  string prefix_rewrite = 2;
+}

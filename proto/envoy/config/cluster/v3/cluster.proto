@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package envoy.config.cluster.v3;
+
+import "envoy/config/core/v3/address.proto";
+import "envoy/config/endpoint/v3/endpoint.proto";
+
+// Cluster configuration
+message Cluster {
+  // The name of the cluster
+  string name = 1;
+  
+  // The cluster type
+  enum DiscoveryType {
+    STATIC = 0;
+    STRICT_DNS = 1;
+    LOGICAL_DNS = 2;
+  }
+  DiscoveryType type = 2;
+  
+  // Load balancing policy
+  enum LbPolicy {
+    ROUND_ROBIN = 0;
+    LEAST_REQUEST = 1;
+    RING_HASH = 2;
+  }
+  LbPolicy lb_policy = 3;
+  
+  // Load assignment for the cluster
+  envoy.config.endpoint.v3.ClusterLoadAssignment load_assignment = 4;
+}

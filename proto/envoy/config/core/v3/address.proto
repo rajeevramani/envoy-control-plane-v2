@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package envoy.config.core.v3;
+
+// Address configuration
+message Address {
+  oneof address {
+    SocketAddress socket_address = 1;
+  }
+}
+
+// Socket address configuration
+message SocketAddress {
+  // The address (IP or hostname)
+  string address = 1;
+  
+  // The port number
+  uint32 port_value = 2;
+}

@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package envoy.service.cluster.v3;
+
+import "envoy/service/discovery/v3/ads.proto";
+
+// Cluster Discovery Service
+service ClusterDiscoveryService {
+  rpc StreamClusters(stream envoy.service.discovery.v3.DiscoveryRequest) 
+      returns (stream envoy.service.discovery.v3.DiscoveryResponse);
+}

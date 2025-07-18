@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package envoy.service.route.v3;
+
+import "envoy/service/discovery/v3/ads.proto";
+
+// Route Discovery Service
+service RouteDiscoveryService {
+  rpc StreamRoutes(stream envoy.service.discovery.v3.DiscoveryRequest) 
+      returns (stream envoy.service.discovery.v3.DiscoveryResponse);
+}

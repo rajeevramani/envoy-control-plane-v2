@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package envoy.service.discovery.v3;
+
+import "google/protobuf/any.proto";
+
+message DiscoveryRequest {
+  string version_info = 1;
+  Node node = 2;
+  repeated string resource_names = 3;
+  string type_url = 4;
+  string nonce = 5;
+  ErrorDetail error_detail = 6;
+}
+
+message DiscoveryResponse {
+  string version_info = 1;
+  repeated google.protobuf.Any resources = 2;
+  bool canary = 3;
+  string type_url = 4;
+  string nonce = 5;
+}
+
+message Node {
+  string id = 1;
+  string cluster = 2;
+  map<string, string> metadata = 3;
+  string user_agent_name = 4;
+  string user_agent_version = 5;
+}
+
+message ErrorDetail {
+  string code = 1;
+  string message = 2;
+}
+
+service AggregatedDiscoveryService {
+  rpc StreamAggregatedResources(stream DiscoveryRequest) returns (stream DiscoveryResponse);
+}

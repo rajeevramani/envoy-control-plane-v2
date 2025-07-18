@@ -6,6 +6,7 @@ use tokio_stream::{wrappers::ReceiverStream, Stream};
 use tonic::{Request, Response, Status, Streaming};
 
 use crate::storage::ConfigStore;
+use crate::xds::conversion::ProtoConverter;
 
 // Include the generated protobuf code
 include!(concat!(env!("OUT_DIR"), "/envoy.service.discovery.v3.rs"));
@@ -46,6 +47,7 @@ impl aggregated_discovery_service_server::AggregatedDiscoveryService for SimpleX
         let mut stream = request.into_inner();
         let (tx, rx) = tokio::sync::mpsc::channel(100);
         let nonce_counter = self.nonce_counter.clone();
+        let store = self.store.clone();
 
         tokio::spawn(async move {
             loop {
@@ -73,11 +75,22 @@ impl aggregated_discovery_service_server::AggregatedDiscoveryService for SimpleX
                         
                         println!("📨 ADS: This is an initial request, sending response");
                         
-                        // Respond to requests with empty resources (valid for any type)
+                        // Get actual resources from the store using the conversion module
+                        let resources = match ProtoConverter::get_resources_by_type(&request.type_url, &store) {
+                            Ok(resources) => {
+                                println!("✅ ADS: Found {} resources for type: {}", resources.len(), request.type_url);
+                                resources
+                            }
+                            Err(e) => {
+                                println!("❌ ADS: Error getting resources for type {}: {}", request.type_url, e);
+                                vec![]
+                            }
+                        };
+                        
                         let response_nonce = nonce_counter.fetch_add(1, Ordering::SeqCst).to_string();
                         let response = DiscoveryResponse {
                             version_info: "1".to_string(),
-                            resources: vec![], // Empty resources - this is valid
+                            resources,
                             canary: false,
                             type_url: request.type_url.clone(),
                             nonce: response_nonce.clone(),

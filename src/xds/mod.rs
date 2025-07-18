@@ -1,4 +1,5 @@
 pub mod simple_server;
-// pub mod conversion;  // Commented out for now
+pub mod conversion;
 
 pub use simple_server::*;
+pub use conversion::*;

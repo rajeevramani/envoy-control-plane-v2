@@ -57,7 +57,10 @@ Content-Type: application/json
 }
 
 ### Make api call
-GET http://localhost:10000/get 
+PUT http://localhost:10000/put
+
+### Make api call
+GET http://localhost:10000/get
 
 ### Delete Route
 DELETE  http://127.0.0.1:8080/routes/{{routeId}}

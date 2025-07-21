@@ -45,6 +45,7 @@ impl<T> ApiResponse<T> {
         }
     }
 
+    #[allow(dead_code)]
     pub fn error(message: &str) -> ApiResponse<()> {
         ApiResponse {
             success: false,
@@ -186,7 +187,7 @@ pub async fn generate_envoy_config(
     let file_path = config_dir.join(format!("{}.yaml", payload.proxy_name));
 
     // Ensure config directory exists
-    if let Err(_) = std::fs::create_dir_all(config_dir) {
+    if std::fs::create_dir_all(config_dir).is_err() {
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
 

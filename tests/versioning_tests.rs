@@ -1,7 +1,6 @@
 use serial_test::serial;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::time::timeout;
 
 use envoy_control_plane::storage::{models::*, ConfigStore};
 use envoy_control_plane::xds::simple_server::SimpleXdsServer;
@@ -90,7 +89,7 @@ async fn test_push_notification_broadcast() {
     // Give some time for the broadcast to process
     tokio::time::sleep(Duration::from_millis(10)).await;
 
-    assert!(true); // Test passes if no panic occurred
+    // Test passes if no panic occurred
 }
 
 #[tokio::test]
@@ -206,7 +205,7 @@ async fn test_notification_with_no_receivers() {
     tokio::time::sleep(Duration::from_millis(10)).await;
 
     // Should not panic or cause issues
-    assert!(true);
+    // Test passes if no panic occurred
 }
 
 #[tokio::test]
@@ -221,7 +220,7 @@ async fn test_rapid_version_increments() {
     }
 
     // Should handle rapid increments without issues
-    assert!(true);
+    // Test passes if no panic occurred
 }
 
 #[tokio::test]

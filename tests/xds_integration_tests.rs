@@ -1,6 +1,3 @@
-use std::sync::Arc;
-use std::time::Duration;
-use tokio::time::timeout;
 
 use envoy_control_plane::storage::{models::*, ConfigStore};
 use envoy_control_plane::xds::conversion::ProtoConverter;
@@ -9,10 +6,10 @@ use envoy_control_plane::xds::simple_server::SimpleXdsServer;
 #[tokio::test]
 async fn test_xds_server_creation() {
     let store = ConfigStore::new();
-    let xds_server = SimpleXdsServer::new(store.clone());
+    SimpleXdsServer::new(store.clone());
 
     // Test that the server was created successfully
-    assert!(true); // Basic creation test
+    // Test passes if no panic occurred during creation
 }
 
 #[tokio::test]
@@ -96,7 +93,7 @@ async fn test_version_increment() {
     xds_server.increment_version();
 
     // This test just ensures the increment_version method doesn't panic
-    assert!(true);
+    // Test passes if no panic occurred
 }
 
 #[tokio::test]

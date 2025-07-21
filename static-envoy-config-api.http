@@ -34,7 +34,7 @@ POST http://127.0.0.1:8080/routes
 Content-Type: application/json
 
 {
-  "path": "/get",
+  "path": "/v1/get",
   "cluster_name": "{{clusterId}}",
   "prefix_rewrite": "/anything/get"
 }

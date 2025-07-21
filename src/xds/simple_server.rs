@@ -32,6 +32,7 @@ impl SimpleXdsServer {
         }
     }
 
+    #[allow(dead_code)]
     fn generate_nonce(&self) -> String {
         // Use simple incrementing integers like Go control plane
         let nonce = self.nonce_counter.fetch_add(1, Ordering::SeqCst);

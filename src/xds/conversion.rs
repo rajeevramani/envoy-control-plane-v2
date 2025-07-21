@@ -113,7 +113,6 @@ impl ProtoConverter {
                                         ..Default::default()
                                     }
                                 )),
-                                ..Default::default()
                             }),
                             ..Default::default()
                         }

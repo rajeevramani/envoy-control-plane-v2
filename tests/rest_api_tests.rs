@@ -157,7 +157,7 @@ async fn test_delete_cluster() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri(&format!("/clusters/{}", cluster_name))
+                .uri(format!("/clusters/{}", cluster_name))
                 .method("DELETE")
                 .body(Body::empty())
                 .unwrap(),
@@ -191,7 +191,7 @@ async fn test_delete_route() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri(&format!("/routes/{}", route_id))
+                .uri(format!("/routes/{}", route_id))
                 .method("DELETE")
                 .body(Body::empty())
                 .unwrap(),

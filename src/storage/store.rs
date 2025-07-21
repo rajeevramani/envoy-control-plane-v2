@@ -29,7 +29,10 @@ impl ConfigStore {
     }
 
     pub fn list_routes(&self) -> Vec<Route> {
-        self.routes.iter().map(|entry| entry.value().clone()).collect()
+        self.routes
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect()
     }
 
     pub fn remove_route(&self, id: &str) -> Option<Route> {
@@ -48,7 +51,10 @@ impl ConfigStore {
     }
 
     pub fn list_clusters(&self) -> Vec<Cluster> {
-        self.clusters.iter().map(|entry| entry.value().clone()).collect()
+        self.clusters
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect()
     }
 
     pub fn remove_cluster(&self, name: &str) -> Option<Cluster> {

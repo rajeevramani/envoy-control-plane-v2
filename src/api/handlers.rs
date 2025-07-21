@@ -5,10 +5,10 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::storage::{ConfigStore, Route, Cluster, Endpoint};
-use crate::envoy::ConfigGenerator;
-use crate::config::AppConfig;
 use crate::api::routes::AppState;
+use crate::config::AppConfig;
+use crate::envoy::ConfigGenerator;
+use crate::storage::{Cluster, Endpoint, Route};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateRouteRequest {
@@ -61,10 +61,10 @@ pub async fn create_route(
 ) -> Result<Json<ApiResponse<String>>, StatusCode> {
     let route = Route::new(payload.path, payload.cluster_name, payload.prefix_rewrite);
     let id = app_state.store.add_route(route);
-    
+
     // Increment version to notify Envoy of the change
     app_state.xds_server.increment_version();
-    
+
     Ok(Json(ApiResponse::success(id, "Route created successfully")))
 }
 
@@ -78,11 +78,12 @@ pub async fn get_route(
     }
 }
 
-pub async fn list_routes(
-    State(app_state): State<AppState>,
-) -> Json<ApiResponse<Vec<Route>>> {
+pub async fn list_routes(State(app_state): State<AppState>) -> Json<ApiResponse<Vec<Route>>> {
     let routes = app_state.store.list_routes();
-    Json(ApiResponse::success(routes, "Routes retrieved successfully"))
+    Json(ApiResponse::success(
+        routes,
+        "Routes retrieved successfully",
+    ))
 }
 
 pub async fn delete_route(
@@ -104,18 +105,22 @@ pub async fn create_cluster(
     State(app_state): State<AppState>,
     Json(payload): Json<CreateClusterRequest>,
 ) -> Result<Json<ApiResponse<String>>, StatusCode> {
-    let endpoints: Vec<Endpoint> = payload.endpoints
+    let endpoints: Vec<Endpoint> = payload
+        .endpoints
         .into_iter()
         .map(|e| Endpoint::new(e.host, e.port))
         .collect();
-    
+
     let cluster = Cluster::new(payload.name, endpoints);
     let name = app_state.store.add_cluster(cluster);
-    
+
     // Increment version to notify Envoy of the change
     app_state.xds_server.increment_version();
-    
-    Ok(Json(ApiResponse::success(name, "Cluster created successfully")))
+
+    Ok(Json(ApiResponse::success(
+        name,
+        "Cluster created successfully",
+    )))
 }
 
 pub async fn get_cluster(
@@ -128,11 +133,12 @@ pub async fn get_cluster(
     }
 }
 
-pub async fn list_clusters(
-    State(app_state): State<AppState>,
-) -> Json<ApiResponse<Vec<Cluster>>> {
+pub async fn list_clusters(State(app_state): State<AppState>) -> Json<ApiResponse<Vec<Cluster>>> {
     let clusters = app_state.store.list_clusters();
-    Json(ApiResponse::success(clusters, "Clusters retrieved successfully"))
+    Json(ApiResponse::success(
+        clusters,
+        "Clusters retrieved successfully",
+    ))
 }
 
 pub async fn delete_cluster(
@@ -143,7 +149,10 @@ pub async fn delete_cluster(
         Some(_) => {
             // Increment version to notify Envoy of the deletion
             app_state.xds_server.increment_version();
-            Ok(Json(ApiResponse::success((), "Cluster deleted successfully")))
+            Ok(Json(ApiResponse::success(
+                (),
+                "Cluster deleted successfully",
+            )))
         }
         None => Err(StatusCode::NOT_FOUND),
     }
@@ -166,15 +175,16 @@ pub async fn generate_envoy_config(
     };
 
     // Generate Envoy configuration
-    let envoy_config = match ConfigGenerator::generate_config(&app_state.store, &app_config, payload.proxy_port) {
-        Ok(config) => config,
-        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
-    };
+    let envoy_config =
+        match ConfigGenerator::generate_config(&app_state.store, &app_config, payload.proxy_port) {
+            Ok(config) => config,
+            Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+        };
 
     // Write to file
     let config_dir = &app_config.envoy.config_dir;
     let file_path = config_dir.join(format!("{}.yaml", payload.proxy_name));
-    
+
     // Ensure config directory exists
     if let Err(_) = std::fs::create_dir_all(config_dir) {
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
@@ -185,9 +195,9 @@ pub async fn generate_envoy_config(
             let file_path_str = file_path.to_string_lossy().to_string();
             Ok(Json(ApiResponse::success(
                 file_path_str,
-                "Envoy configuration generated successfully"
+                "Envoy configuration generated successfully",
             )))
-        },
+        }
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
     }
 }

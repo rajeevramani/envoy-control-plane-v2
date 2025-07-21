@@ -4,8 +4,8 @@ use axum::Router;
 use serde_json::json;
 use tower::ServiceExt;
 
-use envoy_control_plane::storage::{ConfigStore, models::*};
 use envoy_control_plane::api::routes::create_router;
+use envoy_control_plane::storage::{models::*, ConfigStore};
 use envoy_control_plane::xds::simple_server::SimpleXdsServer;
 
 /// Helper function to create a test app with fresh storage
@@ -19,15 +19,22 @@ fn create_test_app() -> (Router, ConfigStore) {
 #[tokio::test]
 async fn test_health_endpoint() {
     let (app, _store) = create_test_app();
-    
+
     let response = app
-        .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri("/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let body_str = std::str::from_utf8(&body).unwrap();
     assert_eq!(body_str, "OK");
 }
@@ -35,7 +42,7 @@ async fn test_health_endpoint() {
 #[tokio::test]
 async fn test_create_and_get_cluster() {
     let (app, _store) = create_test_app();
-    
+
     // Create a cluster
     let cluster_data = json!({
         "name": "test-cluster",
@@ -46,7 +53,7 @@ async fn test_create_and_get_cluster() {
             }
         ]
     });
-    
+
     let response = app
         .clone()
         .oneshot(
@@ -61,16 +68,23 @@ async fn test_create_and_get_cluster() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    
+
     // Get the cluster
     let response = app
-        .oneshot(Request::builder().uri("/clusters").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri("/clusters")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let body_str = std::str::from_utf8(&body).unwrap();
     assert!(body_str.contains("test-cluster"));
     assert!(body_str.contains("127.0.0.1"));
@@ -79,14 +93,14 @@ async fn test_create_and_get_cluster() {
 #[tokio::test]
 async fn test_create_and_get_route() {
     let (app, _store) = create_test_app();
-    
+
     // Create a route
     let route_data = json!({
         "path": "/api/v1/users",
         "cluster_name": "user-service",
         "prefix_rewrite": "/users"
     });
-    
+
     let response = app
         .clone()
         .oneshot(
@@ -101,16 +115,23 @@ async fn test_create_and_get_route() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    
+
     // Get the route
     let response = app
-        .oneshot(Request::builder().uri("/routes").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri("/routes")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let body_str = std::str::from_utf8(&body).unwrap();
     assert!(body_str.contains("/api/v1/users"));
     assert!(body_str.contains("user-service"));
@@ -119,7 +140,7 @@ async fn test_create_and_get_route() {
 #[tokio::test]
 async fn test_delete_cluster() {
     let (app, store) = create_test_app();
-    
+
     // Create a cluster first
     let cluster = Cluster {
         name: "test-cluster".to_string(),
@@ -128,10 +149,10 @@ async fn test_delete_cluster() {
             port: 8080,
         }],
     };
-    
+
     let cluster_name = cluster.name.clone();
     store.add_cluster(cluster);
-    
+
     // Delete the cluster
     let response = app
         .oneshot(
@@ -145,7 +166,7 @@ async fn test_delete_cluster() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    
+
     // Verify it's deleted
     let clusters = store.list_clusters();
     assert!(clusters.is_empty());
@@ -154,7 +175,7 @@ async fn test_delete_cluster() {
 #[tokio::test]
 async fn test_delete_route() {
     let (app, store) = create_test_app();
-    
+
     // Create a route first
     let route = Route {
         id: uuid::Uuid::new_v4().to_string(),
@@ -162,10 +183,10 @@ async fn test_delete_route() {
         cluster_name: "test-cluster".to_string(),
         prefix_rewrite: Some("/test".to_string()),
     };
-    
+
     let route_id = route.id.clone();
     store.add_route(route);
-    
+
     // Delete the route
     let response = app
         .oneshot(
@@ -179,7 +200,7 @@ async fn test_delete_route() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    
+
     // Verify it's deleted
     let routes = store.list_routes();
     assert!(routes.is_empty());
@@ -188,7 +209,7 @@ async fn test_delete_route() {
 #[tokio::test]
 async fn test_invalid_cluster_creation() {
     let (app, _store) = create_test_app();
-    
+
     // Create a cluster with invalid data (missing name)
     let cluster_data = json!({
         "endpoints": [
@@ -198,7 +219,7 @@ async fn test_invalid_cluster_creation() {
             }
         ]
     });
-    
+
     let response = app
         .oneshot(
             Request::builder()
@@ -217,13 +238,13 @@ async fn test_invalid_cluster_creation() {
 #[tokio::test]
 async fn test_invalid_route_creation() {
     let (app, _store) = create_test_app();
-    
+
     // Create a route with invalid data (missing path)
     let route_data = json!({
         "cluster_name": "user-service",
         "prefix_rewrite": "/users"
     });
-    
+
     let response = app
         .oneshot(
             Request::builder()
@@ -242,7 +263,7 @@ async fn test_invalid_route_creation() {
 #[tokio::test]
 async fn test_get_nonexistent_cluster() {
     let (app, _store) = create_test_app();
-    
+
     let response = app
         .oneshot(
             Request::builder()
@@ -259,7 +280,7 @@ async fn test_get_nonexistent_cluster() {
 #[tokio::test]
 async fn test_get_nonexistent_route() {
     let (app, _store) = create_test_app();
-    
+
     let response = app
         .oneshot(
             Request::builder()
@@ -276,7 +297,7 @@ async fn test_get_nonexistent_route() {
 #[tokio::test]
 async fn test_multiple_clusters() {
     let (app, _store) = create_test_app();
-    
+
     // Create first cluster
     let cluster1_data = json!({
         "name": "cluster1",
@@ -287,7 +308,7 @@ async fn test_multiple_clusters() {
             }
         ]
     });
-    
+
     let response = app
         .clone()
         .oneshot(
@@ -302,7 +323,7 @@ async fn test_multiple_clusters() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    
+
     // Create second cluster
     let cluster2_data = json!({
         "name": "cluster2",
@@ -313,7 +334,7 @@ async fn test_multiple_clusters() {
             }
         ]
     });
-    
+
     let response = app
         .clone()
         .oneshot(
@@ -328,16 +349,23 @@ async fn test_multiple_clusters() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    
+
     // Get all clusters
     let response = app
-        .oneshot(Request::builder().uri("/clusters").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri("/clusters")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let body_str = std::str::from_utf8(&body).unwrap();
     assert!(body_str.contains("cluster1"));
     assert!(body_str.contains("cluster2"));

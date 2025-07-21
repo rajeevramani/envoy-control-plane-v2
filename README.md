@@ -448,6 +448,65 @@ logging:
 4. Ensure all tests pass: `cargo test`
 5. Submit a pull request
 
+## 🐳 Docker Support
+
+### Build Docker Image
+```bash
+docker build -t envoy-control-plane .
+```
+
+### Run with Docker
+```bash
+# Run control plane
+docker run -p 8080:8080 -p 18000:18000 envoy-control-plane
+
+# Run with custom config
+docker run -p 8080:8080 -p 18000:18000 \
+  -v $(pwd)/config.yaml:/app/config.yaml \
+  envoy-control-plane
+```
+
+### Docker Compose
+```yaml
+version: '3.8'
+services:
+  control-plane:
+    build: .
+    ports:
+      - "8080:8080"
+      - "18000:18000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+```
+
+## 🔄 CI/CD Pipeline
+
+This project includes a comprehensive GitHub Actions pipeline that runs on every push and pull request:
+
+### Automated Checks
+- ✅ **Code formatting** (`cargo fmt`)
+- ✅ **Linting** (`cargo clippy`) 
+- ✅ **Unit tests** (`cargo test`)
+- ✅ **Security audit** (`cargo audit`)
+- ✅ **Code coverage** (with Codecov integration)
+- ✅ **Docker build** verification
+- ✅ **Multi-Rust version** testing (stable, beta)
+
+### Pipeline Stages
+1. **Test Suite** - Formatting, linting, building, testing
+2. **Security Audit** - Dependency vulnerability scanning  
+3. **Code Coverage** - Coverage reporting with Codecov
+4. **Docker Build** - Container build verification
+
 ## 📄 License
 
-[Add your license here]
+This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
+
+### Why MIT?
+- ✅ **Simple and permissive** - Easy to understand
+- ✅ **Educational friendly** - Perfect for learning projects
+- ✅ **Business friendly** - Others can use/modify freely
+- ✅ **Popular choice** - Standard for Rust ecosystem

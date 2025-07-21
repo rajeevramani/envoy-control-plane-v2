@@ -1,10 +1,9 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
 use crate::config::AppConfig;
-use crate::storage::{ConfigStore, Route, Cluster};
+use crate::storage::{Cluster, ConfigStore, Route};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct EnvoyConfig {
@@ -169,9 +168,7 @@ impl ConfigGenerator {
         let envoy_routes: Vec<EnvoyRoute> = routes
             .into_iter()
             .map(|route| EnvoyRoute {
-                route_match: RouteMatch {
-                    prefix: route.path,
-                },
+                route_match: RouteMatch { prefix: route.path },
                 route: RouteAction {
                     cluster: route.cluster_name,
                     prefix_rewrite: route.prefix_rewrite,
@@ -249,10 +246,7 @@ impl ConfigGenerator {
             .collect()
     }
 
-    pub fn write_config_to_file(
-        config: &EnvoyConfig,
-        file_path: &Path,
-    ) -> anyhow::Result<()> {
+    pub fn write_config_to_file(config: &EnvoyConfig, file_path: &Path) -> anyhow::Result<()> {
         let yaml_content = serde_yaml::to_string(config)?;
         fs::write(file_path, yaml_content)?;
         Ok(())

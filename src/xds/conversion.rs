@@ -1,12 +1,16 @@
-use crate::storage::models::{Route as InternalRoute, Cluster as InternalCluster, Endpoint as InternalEndpoint};
+use crate::storage::models::{Cluster as InternalCluster, Route as InternalRoute};
 use prost::Message;
 use prost_types::Any;
 
 // Import actual Envoy protobuf types
 use envoy_types::pb::envoy::config::cluster::v3::Cluster;
-use envoy_types::pb::envoy::config::route::v3::{RouteConfiguration, VirtualHost, Route, RouteMatch, RouteAction};
 use envoy_types::pb::envoy::config::core::v3::{Address, SocketAddress};
-use envoy_types::pb::envoy::config::endpoint::v3::{ClusterLoadAssignment, LocalityLbEndpoints, LbEndpoint, Endpoint};
+use envoy_types::pb::envoy::config::endpoint::v3::{
+    ClusterLoadAssignment, Endpoint, LbEndpoint, LocalityLbEndpoints,
+};
+use envoy_types::pb::envoy::config::route::v3::{
+    Route, RouteAction, RouteConfiguration, RouteMatch, VirtualHost,
+};
 
 // Include the generated protobuf code for ADS
 include!(concat!(env!("OUT_DIR"), "/envoy.service.discovery.v3.rs"));
@@ -21,12 +25,15 @@ impl ProtoConverter {
             return Ok(vec![]);
         }
 
-        println!("✅ Routes conversion: Creating RouteConfiguration with {} routes", routes.len());
+        println!(
+            "✅ Routes conversion: Creating RouteConfiguration with {} routes",
+            routes.len()
+        );
 
         // Create routes following the Go control plane pattern
         let proto_routes: Vec<Route> = routes.into_iter().map(|route| {
             println!("  - Route: {} -> {}", route.path, route.cluster_name);
-            
+
             Route {
                 r#match: Some(RouteMatch {
                     path_specifier: Some(envoy_types::pb::envoy::config::route::v3::route_match::PathSpecifier::Prefix(route.path)),
@@ -59,7 +66,7 @@ impl ProtoConverter {
         // Encode to protobuf bytes
         let mut buf = Vec::new();
         route_config.encode(&mut buf)?;
-        
+
         println!("✅ Routes conversion: Encoded {} bytes", buf.len());
 
         Ok(vec![Any {
@@ -75,18 +82,25 @@ impl ProtoConverter {
             return Ok(vec![]);
         }
 
-        println!("✅ Clusters conversion: Creating {} clusters", clusters.len());
+        println!(
+            "✅ Clusters conversion: Creating {} clusters",
+            clusters.len()
+        );
 
         let mut proto_clusters = Vec::new();
 
         for cluster in clusters {
             let cluster_name = cluster.name.clone(); // Clone before moving
-            println!("  - Cluster: {} ({} endpoints)", cluster_name, cluster.endpoints.len());
-            
+            println!(
+                "  - Cluster: {} ({} endpoints)",
+                cluster_name,
+                cluster.endpoints.len()
+            );
+
             // Create endpoints following the Go control plane pattern
             let lb_endpoints: Vec<LbEndpoint> = cluster.endpoints.into_iter().map(|endpoint| {
                 println!("    - Endpoint: {}:{}", endpoint.host, endpoint.port);
-                
+
                 LbEndpoint {
                     host_identifier: Some(envoy_types::pb::envoy::config::endpoint::v3::lb_endpoint::HostIdentifier::Endpoint(
                         Endpoint {
@@ -134,8 +148,12 @@ impl ProtoConverter {
             // Encode to protobuf bytes
             let mut buf = Vec::new();
             proto_cluster.encode(&mut buf)?;
-            
-            println!("✅ Cluster conversion: Encoded {} bytes for {}", buf.len(), cluster_name);
+
+            println!(
+                "✅ Cluster conversion: Encoded {} bytes for {}",
+                buf.len(),
+                cluster_name
+            );
 
             proto_clusters.push(Any {
                 type_url: "type.googleapis.com/envoy.config.cluster.v3.Cluster".to_string(),
@@ -156,12 +174,12 @@ impl ProtoConverter {
                 let cluster_list = store.list_clusters();
                 Self::clusters_to_proto(cluster_list)
             }
-            
+
             "type.googleapis.com/envoy.config.route.v3.RouteConfiguration" => {
                 let route_list = store.list_routes();
                 Self::routes_to_proto(route_list)
             }
-            
+
             // For other types (listeners, endpoints, etc.) return empty for now
             // This matches the Go control plane pattern where unsupported types return empty
             _ => {

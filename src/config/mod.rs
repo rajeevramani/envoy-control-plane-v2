@@ -6,6 +6,7 @@ pub struct AppConfig {
     pub server: ServerConfig,
     pub envoy: EnvoyConfig,
     pub logging: LoggingConfig,
+    pub load_balancing: LoadBalancingConfig,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -24,6 +25,13 @@ pub struct EnvoyConfig {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LoggingConfig {
     pub level: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct LoadBalancingConfig {
+    pub envoy_version: String,
+    pub available_policies: Vec<String>,
+    pub default_policy: String,
 }
 
 impl AppConfig {

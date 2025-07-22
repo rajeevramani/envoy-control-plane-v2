@@ -13,8 +13,13 @@ Content-Type: application/json
     {
       "host": "httpbin.org",
       "port": 80
+    },{
+      "host": "httpbin.org",
+      "port": 80,
+      "tls_enabled": true
     }
-  ]
+  ],
+  "lb_policy": "LEAST_REQUEST"
 }
 
 ### Create Cluster Id
@@ -63,7 +68,7 @@ GET http://localhost:10000/health
 PUT http://localhost:10000/put
 
 ### Make api call
-GET http://localhost:10000/v2/api
+GET http://localhost:10000/v1/get
 
 ### Delete Route
 DELETE  http://127.0.0.1:8080/routes/{{routeId}}

@@ -9,3 +9,12 @@ envoy:
 
 logging:
   level: "info"
+
+load_balancing:
+  envoy_version: "1.24"
+  available_policies:
+    - "ROUND_ROBIN"
+    - "LEAST_REQUEST"
+    - "RANDOM"
+    - "RING_HASH"
+  default_policy: "ROUND_ROBIN"

@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::api::routes::AppState;
 use crate::config::AppConfig;
 use crate::envoy::ConfigGenerator;
-use crate::storage::{Cluster, Endpoint, Route};
+use crate::storage::{Cluster, Endpoint, Route, LoadBalancingPolicy};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateRouteRequest {
@@ -21,6 +21,7 @@ pub struct CreateRouteRequest {
 pub struct CreateClusterRequest {
     pub name: String,
     pub endpoints: Vec<CreateEndpointRequest>,
+    pub lb_policy: Option<String>, // Optional: will use config default if None
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -106,13 +107,45 @@ pub async fn create_cluster(
     State(app_state): State<AppState>,
     Json(payload): Json<CreateClusterRequest>,
 ) -> Result<Json<ApiResponse<String>>, StatusCode> {
+    // Load config to validate lb_policy
+    let config = match AppConfig::load() {
+        Ok(cfg) => cfg,
+        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+    };
+
+    // Convert endpoints
     let endpoints: Vec<Endpoint> = payload
         .endpoints
         .into_iter()
         .map(|e| Endpoint::new(e.host, e.port))
         .collect();
 
-    let cluster = Cluster::new(payload.name, endpoints);
+    // Handle load balancing policy
+    let cluster = match payload.lb_policy {
+        Some(policy_str) => {
+            // Validate policy against available_policies registry
+            if !config.load_balancing.available_policies.contains(&policy_str) {
+                return Ok(Json(ApiResponse {
+                    success: false,
+                    data: None,
+                    message: format!(
+                        "Invalid load balancing policy '{}'. Available policies: {:?}",
+                        policy_str, config.load_balancing.available_policies
+                    ),
+                }));
+            }
+            
+            // Convert string to enum and create cluster
+            let lb_policy = LoadBalancingPolicy::from_str(&policy_str);
+            Cluster::with_lb_policy(payload.name, endpoints, lb_policy)
+        }
+        None => {
+            // No policy specified - use default from config
+            let default_policy = LoadBalancingPolicy::from_str(&config.load_balancing.default_policy);
+            Cluster::with_lb_policy(payload.name, endpoints, default_policy)
+        }
+    };
+
     let name = app_state.store.add_cluster(cluster);
 
     // Increment version to notify Envoy of the change

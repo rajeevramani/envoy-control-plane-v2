@@ -1,6 +1,41 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// Load balancing policy for clusters
+/// Hybrid approach: known policies as variants + Custom for flexibility
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum LoadBalancingPolicy {
+    RoundRobin,
+    LeastRequest,
+    Random,
+    RingHash,
+    Custom(String), // For new/unknown policies
+}
+
+impl LoadBalancingPolicy {
+    /// Convert enum to Envoy's expected string format
+    pub fn to_envoy_string(&self) -> String {
+        match self {
+            LoadBalancingPolicy::RoundRobin => "ROUND_ROBIN".to_string(),
+            LoadBalancingPolicy::LeastRequest => "LEAST_REQUEST".to_string(),
+            LoadBalancingPolicy::Random => "RANDOM".to_string(),
+            LoadBalancingPolicy::RingHash => "RING_HASH".to_string(),
+            LoadBalancingPolicy::Custom(policy) => policy.clone(),
+        }
+    }
+    
+    /// Parse string from config/API into enum
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "ROUND_ROBIN" => LoadBalancingPolicy::RoundRobin,
+            "LEAST_REQUEST" => LoadBalancingPolicy::LeastRequest,
+            "RANDOM" => LoadBalancingPolicy::Random,
+            "RING_HASH" => LoadBalancingPolicy::RingHash,
+            custom => LoadBalancingPolicy::Custom(custom.to_string()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Route {
     pub id: String,
@@ -13,6 +48,7 @@ pub struct Route {
 pub struct Cluster {
     pub name: String,
     pub endpoints: Vec<Endpoint>,
+    pub lb_policy: Option<LoadBalancingPolicy>, // Optional: falls back to config default
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -34,7 +70,19 @@ impl Route {
 
 impl Cluster {
     pub fn new(name: String, endpoints: Vec<Endpoint>) -> Self {
-        Self { name, endpoints }
+        Self { 
+            name, 
+            endpoints, 
+            lb_policy: None // Will use default from config
+        }
+    }
+    
+    pub fn with_lb_policy(name: String, endpoints: Vec<Endpoint>, lb_policy: LoadBalancingPolicy) -> Self {
+        Self { 
+            name, 
+            endpoints, 
+            lb_policy: Some(lb_policy)
+        }
     }
 }
 

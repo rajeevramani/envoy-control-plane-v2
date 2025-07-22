@@ -1,4 +1,4 @@
-use crate::storage::models::{Cluster as InternalCluster, Route as InternalRoute};
+use crate::storage::models::{Cluster as InternalCluster, Route as InternalRoute, LoadBalancingPolicy};
 use prost::Message;
 use prost_types::Any;
 
@@ -16,6 +16,26 @@ use envoy_types::pb::envoy::config::route::v3::{
 include!(concat!(env!("OUT_DIR"), "/envoy.service.discovery.v3.rs"));
 
 pub struct ProtoConverter;
+
+impl ProtoConverter {
+    /// Convert our LoadBalancingPolicy enum to Envoy's protobuf LbPolicy
+    fn lb_policy_to_envoy_proto(policy: &LoadBalancingPolicy) -> i32 {
+        use envoy_types::pb::envoy::config::cluster::v3::cluster::LbPolicy;
+        
+        match policy {
+            LoadBalancingPolicy::RoundRobin => LbPolicy::RoundRobin as i32,
+            LoadBalancingPolicy::LeastRequest => LbPolicy::LeastRequest as i32,
+            LoadBalancingPolicy::Random => LbPolicy::Random as i32,
+            LoadBalancingPolicy::RingHash => LbPolicy::RingHash as i32,
+            LoadBalancingPolicy::Custom(policy_name) => {
+                // For custom policies, we'll need to handle them specially
+                // For now, log a warning and fall back to RoundRobin
+                println!("⚠️  Custom policy '{}' not directly supported in protobuf enum, using RoundRobin", policy_name);
+                LbPolicy::RoundRobin as i32
+            }
+        }
+    }
+}
 
 impl ProtoConverter {
     /// Convert internal routes to Envoy RouteConfiguration protobuf
@@ -137,7 +157,9 @@ impl ProtoConverter {
                 cluster_discovery_type: Some(envoy_types::pb::envoy::config::cluster::v3::cluster::ClusterDiscoveryType::Type(
                     envoy_types::pb::envoy::config::cluster::v3::cluster::DiscoveryType::StrictDns as i32
                 )),
-                lb_policy: envoy_types::pb::envoy::config::cluster::v3::cluster::LbPolicy::RoundRobin as i32,
+                lb_policy: Self::lb_policy_to_envoy_proto(
+                    cluster.lb_policy.as_ref().unwrap_or(&LoadBalancingPolicy::RoundRobin)
+                ),
                 load_assignment: Some(load_assignment),
                 connect_timeout: Some(envoy_types::pb::google::protobuf::Duration { seconds: 5, nanos: 0 }),
                 dns_lookup_family: envoy_types::pb::envoy::config::cluster::v3::cluster::DnsLookupFamily::V4Only as i32,

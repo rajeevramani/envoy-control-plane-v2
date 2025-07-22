@@ -28,6 +28,26 @@ Content-Type: application/json
 ### Get Clusters
 GET http://127.0.0.1:8080/clusters
 
+### Update Cluster
+
+PUT http://127.0.0.1:8080/clusters/{{clusterId}}
+Content-Type: application/json
+
+{
+  "name": "httpbin-service",
+  "endpoints": [
+    {
+      "host": "httpbin.org",
+      "port": 80
+    },{
+      "host": "httpbin.org",
+      "port": 80,
+      "tls_enabled": true
+    }
+  ],
+  "lb_policy": "LEAST_REQUEST"
+}
+
 ### Get Cluster
 GET http://127.0.0.1:8080/clusters/{{clusterId}}
 

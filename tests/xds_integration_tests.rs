@@ -23,6 +23,7 @@ async fn test_get_resources_by_type_clusters() {
             host: "127.0.0.1".to_string(),
             port: 8080,
         }],
+        lb_policy: None, // Use default
     };
 
     store.add_cluster(cluster);
@@ -107,6 +108,7 @@ async fn test_cluster_storage_and_retrieval() {
             host: "127.0.0.1".to_string(),
             port: 8080,
         }],
+        lb_policy: None, // Use default
     };
 
     let cluster2 = Cluster {
@@ -115,6 +117,7 @@ async fn test_cluster_storage_and_retrieval() {
             host: "127.0.0.1".to_string(),
             port: 8081,
         }],
+        lb_policy: None, // Use default
     };
 
     store.add_cluster(cluster1);
@@ -179,6 +182,7 @@ async fn test_resource_deletion() {
             host: "127.0.0.1".to_string(),
             port: 8080,
         }],
+        lb_policy: None, // Use default
     };
 
     let route = Route {
@@ -219,6 +223,7 @@ async fn test_concurrent_resource_access() {
                         host: "127.0.0.1".to_string(),
                         port: 8080 + i,
                     }],
+                    lb_policy: None, // Use default
                 };
 
                 store.add_cluster(cluster);
@@ -246,6 +251,7 @@ async fn test_discovery_response_creation() {
             host: "127.0.0.1".to_string(),
             port: 8080,
         }],
+        lb_policy: None, // Use default
     };
 
     store.add_cluster(cluster);

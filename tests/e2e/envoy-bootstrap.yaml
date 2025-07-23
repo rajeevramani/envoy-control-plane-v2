@@ -1,0 +1,70 @@
+node:
+  id: envoy-test-node
+  cluster: envoy-test-cluster
+
+# Configure Envoy to get config dynamically from our control plane
+dynamic_resources:
+  # Use ADS (Aggregated Discovery Service) to get all config from one endpoint
+  ads_config:
+    api_type: GRPC
+    transport_api_version: V3
+    grpc_services:
+    - envoy_grpc:
+        cluster_name: control_plane_cluster
+    set_node_on_first_message_only: true
+  
+  # Tell Envoy to get clusters via ADS
+  cds_config:
+    ads: {}
+    resource_api_version: V3
+
+static_resources:
+  # Define how to connect to our control plane
+  clusters:
+  - name: control_plane_cluster
+    type: STRICT_DNS
+    lb_policy: ROUND_ROBIN
+    http2_protocol_options: {}  # Enable HTTP/2 for gRPC
+    load_assignment:
+      cluster_name: control_plane_cluster
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: control-plane  # Docker service name
+                port_value: 18000        # xDS gRPC port
+    connect_timeout: 5s
+    
+  # Define the main listener that will proxy client requests
+  listeners:
+  - name: main_listener
+    address:
+      socket_address:
+        protocol: TCP
+        address: 0.0.0.0
+        port_value: 10000
+    filter_chains:
+    - filters:
+      - name: envoy.filters.network.http_connection_manager
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          stat_prefix: ingress_http
+          # Get routes dynamically from our control plane
+          rds:
+            config_source:
+              ads: {}
+              resource_api_version: V3
+            route_config_name: local_route
+          http_filters:
+          - name: envoy.filters.http.router
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+# Enable admin interface for debugging
+admin:
+  address:
+    socket_address:
+      protocol: TCP
+      address: 0.0.0.0
+      port_value: 9901

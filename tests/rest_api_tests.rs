@@ -148,6 +148,7 @@ async fn test_delete_cluster() {
             host: "127.0.0.1".to_string(),
             port: 8080,
         }],
+        lb_policy: None, // Use default
     };
 
     let cluster_name = cluster.name.clone();
@@ -369,4 +370,117 @@ async fn test_multiple_clusters() {
     let body_str = std::str::from_utf8(&body).unwrap();
     assert!(body_str.contains("cluster1"));
     assert!(body_str.contains("cluster2"));
+}
+
+// Tests for our new load balancing policy functionality
+#[tokio::test]
+async fn test_create_cluster_with_valid_lb_policy() {
+    let (app, _store) = create_test_app();
+
+    // Create a cluster with valid LB policy
+    let cluster_data = json!({
+        "name": "lb-test-cluster",
+        "endpoints": [
+            {
+                "host": "127.0.0.1",
+                "port": 8080
+            }
+        ],
+        "lb_policy": "LEAST_REQUEST"
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/clusters")
+                .method("POST")
+                .header("content-type", "application/json")
+                .body(Body::from(cluster_data.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body_str = std::str::from_utf8(&body).unwrap();
+    assert!(body_str.contains("success"));
+    assert!(body_str.contains("Cluster created successfully"));
+}
+
+#[tokio::test]
+async fn test_create_cluster_with_invalid_lb_policy() {
+    let (app, _store) = create_test_app();
+
+    // Create a cluster with invalid LB policy
+    let cluster_data = json!({
+        "name": "invalid-lb-cluster",
+        "endpoints": [
+            {
+                "host": "127.0.0.1",
+                "port": 8080
+            }
+        ],
+        "lb_policy": "INVALID_POLICY"
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/clusters")
+                .method("POST")
+                .header("content-type", "application/json")
+                .body(Body::from(cluster_data.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body_str = std::str::from_utf8(&body).unwrap();
+    assert!(body_str.contains("Invalid load balancing policy"));
+    assert!(body_str.contains("INVALID_POLICY"));
+}
+
+#[tokio::test]
+async fn test_create_cluster_without_lb_policy_uses_default() {
+    let (app, _store) = create_test_app();
+
+    // Create a cluster without specifying LB policy (should use default)
+    let cluster_data = json!({
+        "name": "default-lb-cluster",
+        "endpoints": [
+            {
+                "host": "127.0.0.1",
+                "port": 8080
+            }
+        ]
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/clusters")
+                .method("POST")
+                .header("content-type", "application/json")
+                .body(Body::from(cluster_data.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body_str = std::str::from_utf8(&body).unwrap();
+    assert!(body_str.contains("success"));
 }

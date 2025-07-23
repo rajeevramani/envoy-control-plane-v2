@@ -18,6 +18,7 @@ async fn test_version_increment_on_cluster_change() {
             host: "127.0.0.1".to_string(),
             port: 8080,
         }],
+        lb_policy: None, // Use default
     };
 
     store.add_cluster(cluster.clone());
@@ -66,6 +67,7 @@ async fn test_multiple_version_increments() {
                 host: "127.0.0.1".to_string(),
                 port: 8080 + i,
             }],
+            lb_policy: None, // Use default
         };
 
         store.add_cluster(cluster);
@@ -110,6 +112,7 @@ async fn test_concurrent_version_increments() {
                         host: "127.0.0.1".to_string(),
                         port: 8080 + i,
                     }],
+                    lb_policy: None, // Use default
                 };
 
                 store.add_cluster(cluster);
@@ -140,6 +143,7 @@ async fn test_resource_deletion_with_version_increment() {
             host: "127.0.0.1".to_string(),
             port: 8080,
         }],
+        lb_policy: None, // Use default
     };
 
     let cluster_name = cluster.name.clone();
@@ -170,6 +174,7 @@ async fn test_mixed_resource_operations() {
             host: "127.0.0.1".to_string(),
             port: 8080,
         }],
+        lb_policy: None, // Use default
     };
 
     store.add_cluster(cluster);
@@ -250,6 +255,7 @@ async fn test_store_persistence_across_increments() {
             host: "127.0.0.1".to_string(),
             port: 8080,
         }],
+        lb_policy: None, // Use default
     };
 
     store.add_cluster(cluster);

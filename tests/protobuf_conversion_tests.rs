@@ -16,6 +16,7 @@ async fn test_cluster_to_proto_conversion() {
                 port: 8081,
             },
         ],
+        lb_policy: None, // Use default
     };
 
     let proto_clusters = ProtoConverter::clusters_to_proto(vec![cluster]).unwrap();
@@ -126,6 +127,7 @@ async fn test_cluster_with_single_endpoint() {
             host: "192.168.1.100".to_string(),
             port: 3000,
         }],
+        lb_policy: None, // Use default
     };
 
     let proto_clusters = ProtoConverter::clusters_to_proto(vec![cluster]).unwrap();
@@ -198,6 +200,7 @@ async fn test_multiple_clusters_conversion() {
                 host: "127.0.0.1".to_string(),
                 port: 8080,
             }],
+            lb_policy: None, // Use default
         },
         Cluster {
             name: "service2".to_string(),
@@ -205,6 +208,7 @@ async fn test_multiple_clusters_conversion() {
                 host: "127.0.0.1".to_string(),
                 port: 8081,
             }],
+            lb_policy: None, // Use default
         },
     ];
 

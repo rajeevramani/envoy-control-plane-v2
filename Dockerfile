@@ -1,5 +1,5 @@
 # Build stage
-FROM rust:1.75-slim as builder
+FROM rust:1.82-slim as builder
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -11,12 +11,14 @@ RUN apt-get update && apt-get install -y \
 # Create app directory
 WORKDIR /app
 
-# Copy manifest files
+# Copy manifest files first (for better caching)
 COPY Cargo.toml Cargo.lock ./
 
 # Copy source code
 COPY src/ src/
+COPY proto/ proto/
 COPY build.rs ./
+COPY config.yaml ./
 
 # Build the application
 RUN cargo build --release
@@ -27,6 +29,7 @@ FROM debian:bookworm-slim
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
     ca-certificates \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app user

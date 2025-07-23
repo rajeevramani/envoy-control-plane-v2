@@ -47,6 +47,9 @@ impl ProtoConverter {
             return Ok(vec![]);
         }
 
+        // Load config for naming settings
+        let app_config = crate::config::AppConfig::load()?;
+
         println!(
             "✅ Routes conversion: Creating RouteConfiguration with {} routes",
             routes.len()
@@ -72,15 +75,15 @@ impl ProtoConverter {
 
         // Create virtual host with all routes
         let virtual_host = VirtualHost {
-            name: "local_service".to_string(),
-            domains: vec!["*".to_string()],
+            name: app_config.envoy_generation.naming.virtual_host_name.clone(),
+            domains: app_config.envoy_generation.naming.default_domains.clone(),
             routes: proto_routes,
             ..Default::default()
         };
 
         // Create RouteConfiguration
         let route_config = RouteConfiguration {
-            name: "local_route".to_string(),
+            name: app_config.envoy_generation.naming.route_config_name.clone(),
             virtual_hosts: vec![virtual_host],
             ..Default::default()
         };
@@ -103,6 +106,9 @@ impl ProtoConverter {
         if clusters.is_empty() {
             return Ok(vec![]);
         }
+
+        // Load config for timeout settings
+        let app_config = crate::config::AppConfig::load()?;
 
         println!(
             "✅ Clusters conversion: Creating {} clusters",
@@ -129,7 +135,7 @@ impl ProtoConverter {
                             address: Some(Address {
                                 address: Some(envoy_types::pb::envoy::config::core::v3::address::Address::SocketAddress(
                                     SocketAddress {
-                                        protocol: envoy_types::pb::envoy::config::core::v3::socket_address::Protocol::Tcp as i32,
+                                        protocol: Self::protocol_to_proto(&app_config.envoy_generation.cluster.default_protocol),
                                         address: endpoint.host,
                                         port_specifier: Some(envoy_types::pb::envoy::config::core::v3::socket_address::PortSpecifier::PortValue(endpoint.port as u32)),
                                         ..Default::default()
@@ -163,8 +169,11 @@ impl ProtoConverter {
                     cluster.lb_policy.as_ref().unwrap_or(&LoadBalancingPolicy::RoundRobin)
                 ),
                 load_assignment: Some(load_assignment),
-                connect_timeout: Some(envoy_types::pb::google::protobuf::Duration { seconds: 5, nanos: 0 }),
-                dns_lookup_family: envoy_types::pb::envoy::config::cluster::v3::cluster::DnsLookupFamily::V4Only as i32,
+                connect_timeout: Some(envoy_types::pb::google::protobuf::Duration { 
+                    seconds: app_config.envoy_generation.cluster.connect_timeout_seconds as i64, 
+                    nanos: 0 
+                }),
+                dns_lookup_family: Self::dns_lookup_family_to_proto(&app_config.envoy_generation.cluster.dns_lookup_family),
                 ..Default::default()
             };
 
@@ -208,6 +217,33 @@ impl ProtoConverter {
             _ => {
                 println!("ℹ️  Unsupported resource type: {}", type_url);
                 Ok(vec![])
+            }
+        }
+    }
+
+    /// Convert DNS lookup family string to Envoy protobuf enum
+    fn dns_lookup_family_to_proto(dns_family: &str) -> i32 {
+        use envoy_types::pb::envoy::config::cluster::v3::cluster::DnsLookupFamily;
+        match dns_family {
+            "V4_ONLY" => DnsLookupFamily::V4Only as i32,
+            "V6_ONLY" => DnsLookupFamily::V6Only as i32,
+            "AUTO" => DnsLookupFamily::Auto as i32,
+            _ => {
+                println!("⚠️  Unknown DNS lookup family '{}', defaulting to V4_ONLY", dns_family);
+                DnsLookupFamily::V4Only as i32
+            }
+        }
+    }
+
+    /// Convert protocol string to Envoy protobuf enum
+    fn protocol_to_proto(protocol: &str) -> i32 {
+        use envoy_types::pb::envoy::config::core::v3::socket_address::Protocol;
+        match protocol {
+            "TCP" => Protocol::Tcp as i32,
+            "UDP" => Protocol::Udp as i32,
+            _ => {
+                println!("⚠️  Unknown protocol '{}', defaulting to TCP", protocol);
+                Protocol::Tcp as i32
             }
         }
     }

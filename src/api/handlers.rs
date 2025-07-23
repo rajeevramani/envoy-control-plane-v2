@@ -125,6 +125,7 @@ pub async fn create_cluster(
         Some(policy_str) => {
             // Validate policy against available_policies registry
             if !config
+                .control_plane
                 .load_balancing
                 .available_policies
                 .contains(&policy_str)
@@ -134,7 +135,7 @@ pub async fn create_cluster(
                     data: None,
                     message: format!(
                         "Invalid load balancing policy '{}'. Available policies: {:?}",
-                        policy_str, config.load_balancing.available_policies
+                        policy_str, config.control_plane.load_balancing.available_policies
                     ),
                 }));
             }
@@ -146,7 +147,7 @@ pub async fn create_cluster(
         None => {
             // No policy specified - use default from config
             let default_policy =
-                LoadBalancingPolicy::from_str(&config.load_balancing.default_policy);
+                LoadBalancingPolicy::from_str(&config.control_plane.load_balancing.default_policy);
             Cluster::with_lb_policy(payload.name, endpoints, default_policy)
         }
     };
@@ -221,7 +222,7 @@ pub async fn generate_envoy_config(
         };
 
     // Write to file
-    let config_dir = &app_config.envoy.config_dir;
+    let config_dir = &app_config.envoy_generation.config_dir;
     let file_path = config_dir.join(format!("{}.yaml", payload.proxy_name));
 
     // Ensure config directory exists

@@ -1,20 +1,42 @@
-server:
-  rest_port: 8080
-  xds_port: 18000
-  host: "0.0.0.0"
+# ===========================================
+# CONTROL PLANE CONFIGURATION
+# Settings for our Rust control plane application
+# ===========================================
+control_plane:
+  server:
+    rest_port: 8080        # REST API port for cluster/route management
+    xds_port: 18000        # xDS server port for Envoy connections
+    host: "0.0.0.0"        # Control plane binding address
+  logging:
+    level: "info"          # Control plane log level
+  load_balancing:
+    envoy_version: "1.24"
+    available_policies:    # Policies our control plane supports
+      - "ROUND_ROBIN"
+      - "LEAST_REQUEST"
+      - "RANDOM"
+      - "RING_HASH"
+    default_policy: "ROUND_ROBIN"  # Default when none specified
 
-envoy:
-  config_dir: "./configs"
-  admin_port: 9901
-
-logging:
-  level: "info"
-
-load_balancing:
-  envoy_version: "1.24"
-  available_policies:
-    - "ROUND_ROBIN"
-    - "LEAST_REQUEST"
-    - "RANDOM"
-    - "RING_HASH"
-  default_policy: "ROUND_ROBIN"
+# ===========================================
+# ENVOY CONFIGURATION GENERATION
+# Settings used when generating Envoy config files
+# ===========================================
+envoy_generation:
+  config_dir: "./configs"  # Where to write generated Envoy configs
+  admin:
+    host: "127.0.0.1"      # Envoy admin interface binding
+    port: 9901             # Envoy admin interface port
+  listener:
+    binding_address: "0.0.0.0"  # Envoy proxy listener binding
+    default_port: 10000          # Default Envoy proxy port
+  cluster:
+    connect_timeout_seconds: 5   # Cluster connection timeout
+    discovery_type: "STRICT_DNS" # Cluster discovery type (STRICT_DNS, LOGICAL_DNS, etc.)
+    dns_lookup_family: "V4_ONLY" # DNS lookup family (V4_ONLY, V6_ONLY, AUTO)
+    default_protocol: "TCP"      # Default endpoint protocol (TCP, UDP)
+  naming:
+    listener_name: "listener_0"        # Envoy listener name
+    virtual_host_name: "local_service" # Virtual host name
+    route_config_name: "local_route"   # Route configuration name
+    default_domains: ["*"]             # Default virtual host domains

@@ -150,21 +150,21 @@ impl ConfigGenerator {
             admin: AdminConfig {
                 address: SocketAddress {
                     socket_address: SocketAddressInner {
-                        address: "127.0.0.1".to_string(),
-                        port_value: app_config.envoy.admin_port,
+                        address: app_config.envoy_generation.admin.host.clone(),
+                        port_value: app_config.envoy_generation.admin.port,
                     },
                 },
             },
             static_resources: StaticResources {
-                listeners: vec![Self::create_listener(routes, proxy_port)?],
-                clusters: Self::create_clusters(clusters)?,
+                listeners: vec![Self::create_listener(routes, proxy_port, app_config)?],
+                clusters: Self::create_clusters(clusters, app_config)?,
             },
         };
 
         Ok(envoy_config)
     }
 
-    fn create_listener(routes: Vec<Route>, port: u16) -> anyhow::Result<Listener> {
+    fn create_listener(routes: Vec<Route>, port: u16, app_config: &AppConfig) -> anyhow::Result<Listener> {
         let envoy_routes: Vec<EnvoyRoute> = routes
             .into_iter()
             .map(|route| EnvoyRoute {
@@ -177,8 +177,8 @@ impl ConfigGenerator {
             .collect();
 
         let virtual_host = VirtualHost {
-            name: "local_service".to_string(),
-            domains: vec!["*".to_string()],
+            name: app_config.envoy_generation.naming.virtual_host_name.clone(),
+            domains: app_config.envoy_generation.naming.default_domains.clone(),
             routes: envoy_routes,
         };
 
@@ -186,7 +186,7 @@ impl ConfigGenerator {
             type_url: "type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager".to_string(),
             stat_prefix: "ingress_http".to_string(),
             route_config: RouteConfiguration {
-                name: "local_route".to_string(),
+                name: app_config.envoy_generation.naming.route_config_name.clone(),
                 virtual_hosts: vec![virtual_host],
             },
             http_filters: vec![HttpFilter {
@@ -198,10 +198,10 @@ impl ConfigGenerator {
         };
 
         Ok(Listener {
-            name: "listener_0".to_string(),
+            name: app_config.envoy_generation.naming.listener_name.clone(),
             address: SocketAddress {
                 socket_address: SocketAddressInner {
-                    address: "0.0.0.0".to_string(),
+                    address: app_config.envoy_generation.listener.binding_address.clone(),
                     port_value: port,
                 },
             },
@@ -214,7 +214,7 @@ impl ConfigGenerator {
         })
     }
 
-    fn create_clusters(clusters: Vec<Cluster>) -> anyhow::Result<Vec<EnvoyCluster>> {
+    fn create_clusters(clusters: Vec<Cluster>, app_config: &AppConfig) -> anyhow::Result<Vec<EnvoyCluster>> {
         clusters
             .into_iter()
             .map(|cluster| {
@@ -235,7 +235,7 @@ impl ConfigGenerator {
 
                 Ok(EnvoyCluster {
                     name: cluster.name.clone(),
-                    cluster_type: "STRICT_DNS".to_string(),
+                    cluster_type: app_config.envoy_generation.cluster.discovery_type.clone(),
                     lb_policy: "ROUND_ROBIN".to_string(),
                     load_assignment: ClusterLoadAssignment {
                         cluster_name: cluster.name,

@@ -25,8 +25,14 @@ async fn main() -> anyhow::Result<()> {
     let app = api::create_router(store.clone(), xds_server.clone());
 
     // Start both servers concurrently
-    let rest_addr = format!("{}:{}", config.server.host, config.server.rest_port);
-    let xds_addr = format!("{}:{}", config.server.host, config.server.xds_port);
+    let rest_addr = format!(
+        "{}:{}",
+        config.control_plane.server.host, config.control_plane.server.rest_port
+    );
+    let xds_addr = format!(
+        "{}:{}",
+        config.control_plane.server.host, config.control_plane.server.xds_port
+    );
 
     println!("Envoy Control Plane starting...");
     println!("REST API running on http://{}", rest_addr);

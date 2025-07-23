@@ -1,4 +1,6 @@
-use crate::storage::models::{Cluster as InternalCluster, Route as InternalRoute, LoadBalancingPolicy};
+use crate::storage::models::{
+    Cluster as InternalCluster, LoadBalancingPolicy, Route as InternalRoute,
+};
 use prost::Message;
 use prost_types::Any;
 
@@ -21,7 +23,7 @@ impl ProtoConverter {
     /// Convert our LoadBalancingPolicy enum to Envoy's protobuf LbPolicy
     fn lb_policy_to_envoy_proto(policy: &LoadBalancingPolicy) -> i32 {
         use envoy_types::pb::envoy::config::cluster::v3::cluster::LbPolicy;
-        
+
         match policy {
             LoadBalancingPolicy::RoundRobin => LbPolicy::RoundRobin as i32,
             LoadBalancingPolicy::LeastRequest => LbPolicy::LeastRequest as i32,

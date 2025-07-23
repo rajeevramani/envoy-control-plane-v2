@@ -1,4 +1,3 @@
-
 use envoy_control_plane::storage::{models::*, ConfigStore};
 use envoy_control_plane::xds::conversion::ProtoConverter;
 use envoy_control_plane::xds::simple_server::SimpleXdsServer;

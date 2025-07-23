@@ -229,7 +229,7 @@ async fn send_request_through_envoy(path: &str) -> Result<(), String> {
             } else {
                 Err(format!("Request failed with status: {}", status))
             }
-        },
+        }
         Err(e) => Err(format!("Request to Envoy failed: {}", e)),
     }
 }
@@ -251,4 +251,3 @@ async fn list_clusters() -> Result<String, String> {
         Err(e) => Err(format!("List clusters request failed: {}", e)),
     }
 }
-

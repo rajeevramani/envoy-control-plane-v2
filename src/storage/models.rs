@@ -23,7 +23,7 @@ impl LoadBalancingPolicy {
             LoadBalancingPolicy::Custom(policy) => policy.clone(),
         }
     }
-    
+
     /// Parse string from config/API into enum
     pub fn from_str(s: &str) -> Self {
         match s {
@@ -70,18 +70,22 @@ impl Route {
 
 impl Cluster {
     pub fn new(name: String, endpoints: Vec<Endpoint>) -> Self {
-        Self { 
-            name, 
-            endpoints, 
-            lb_policy: None // Will use default from config
+        Self {
+            name,
+            endpoints,
+            lb_policy: None, // Will use default from config
         }
     }
-    
-    pub fn with_lb_policy(name: String, endpoints: Vec<Endpoint>, lb_policy: LoadBalancingPolicy) -> Self {
-        Self { 
-            name, 
-            endpoints, 
-            lb_policy: Some(lb_policy)
+
+    pub fn with_lb_policy(
+        name: String,
+        endpoints: Vec<Endpoint>,
+        lb_policy: LoadBalancingPolicy,
+    ) -> Self {
+        Self {
+            name,
+            endpoints,
+            lb_policy: Some(lb_policy),
         }
     }
 }

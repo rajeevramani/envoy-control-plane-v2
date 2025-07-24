@@ -42,6 +42,7 @@ pub struct EnvoyGenerationConfig {
     pub listener: ListenerConfig,
     pub cluster: ClusterConfig,
     pub naming: NamingConfig,
+    pub bootstrap: BootstrapConfig,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -70,6 +71,15 @@ pub struct NamingConfig {
     pub virtual_host_name: String,
     pub route_config_name: String,
     pub default_domains: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BootstrapConfig {
+    pub node_id: String,
+    pub node_cluster: String,
+    pub control_plane_host: String,
+    pub main_listener_name: String,
+    pub control_plane_cluster_name: String,
 }
 
 impl AppConfig {

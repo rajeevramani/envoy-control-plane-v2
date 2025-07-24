@@ -40,3 +40,9 @@ envoy_generation:
     virtual_host_name: "local_service" # Virtual host name
     route_config_name: "local_route"   # Route configuration name
     default_domains: ["*"]             # Default virtual host domains
+  bootstrap:
+    node_id: "envoy-test-node"         # Envoy node identifier
+    node_cluster: "envoy-test-cluster" # Envoy node cluster name
+    control_plane_host: "control-plane" # Control plane service name (Docker)
+    main_listener_name: "main_listener" # Main proxy listener name
+    control_plane_cluster_name: "control_plane_cluster" # Static cluster name for control plane

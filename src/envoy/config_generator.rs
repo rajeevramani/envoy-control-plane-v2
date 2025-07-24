@@ -138,6 +138,100 @@ pub struct Endpoint {
 pub struct ConfigGenerator;
 
 impl ConfigGenerator {
+    /// Generate Envoy bootstrap configuration using our config system
+    pub fn generate_bootstrap_config(app_config: &AppConfig) -> anyhow::Result<String> {
+        let bootstrap_yaml = format!(
+            r#"node:
+  id: {}
+  cluster: {}
+
+# Configure Envoy to get config dynamically from our control plane
+dynamic_resources:
+  # Use ADS (Aggregated Discovery Service) to get all config from one endpoint
+  ads_config:
+    api_type: GRPC
+    transport_api_version: V3
+    grpc_services:
+    - envoy_grpc:
+        cluster_name: {}
+    set_node_on_first_message_only: true
+  
+  # Tell Envoy to get clusters via ADS
+  cds_config:
+    ads: {{}}
+    resource_api_version: V3
+
+static_resources:
+  # Define how to connect to our control plane
+  clusters:
+  - name: {}
+    type: {}
+    lb_policy: ROUND_ROBIN
+    http2_protocol_options: {{}}  # Enable HTTP/2 for gRPC
+    load_assignment:
+      cluster_name: {}
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: {}
+                port_value: {}
+    connect_timeout: {}s
+    
+  # Define the main listener that will proxy client requests
+  listeners:
+  - name: {}
+    address:
+      socket_address:
+        protocol: {}
+        address: {}
+        port_value: {}
+    filter_chains:
+    - filters:
+      - name: envoy.filters.network.http_connection_manager
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          stat_prefix: ingress_http
+          # Get routes dynamically from our control plane
+          rds:
+            config_source:
+              ads: {{}}
+              resource_api_version: V3
+            route_config_name: {}
+          http_filters:
+          - name: envoy.filters.http.router
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+# Enable admin interface for debugging
+admin:
+  address:
+    socket_address:
+      protocol: TCP
+      address: {}
+      port_value: {}
+"#,
+            app_config.envoy_generation.bootstrap.node_id,
+            app_config.envoy_generation.bootstrap.node_cluster,
+            app_config.envoy_generation.bootstrap.control_plane_cluster_name,
+            app_config.envoy_generation.bootstrap.control_plane_cluster_name,
+            app_config.envoy_generation.cluster.discovery_type,
+            app_config.envoy_generation.bootstrap.control_plane_cluster_name,
+            app_config.envoy_generation.bootstrap.control_plane_host,
+            app_config.control_plane.server.xds_port,
+            app_config.envoy_generation.cluster.connect_timeout_seconds,
+            app_config.envoy_generation.bootstrap.main_listener_name,
+            app_config.envoy_generation.cluster.default_protocol,
+            app_config.envoy_generation.listener.binding_address,
+            app_config.envoy_generation.listener.default_port,
+            app_config.envoy_generation.naming.route_config_name,
+            app_config.envoy_generation.admin.host,
+            app_config.envoy_generation.admin.port,
+        );
+
+        Ok(bootstrap_yaml)
+    }
     pub fn generate_config(
         store: &ConfigStore,
         app_config: &AppConfig,

@@ -204,6 +204,25 @@ pub struct GenerateConfigRequest {
     pub proxy_port: u16,
 }
 
+pub async fn generate_bootstrap_config(
+    State(_app_state): State<AppState>,
+) -> Result<Json<ApiResponse<String>>, StatusCode> {
+    // Load app config
+    let app_config = match AppConfig::load() {
+        Ok(config) => config,
+        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+    };
+
+    // Generate bootstrap configuration
+    match ConfigGenerator::generate_bootstrap_config(&app_config) {
+        Ok(bootstrap_yaml) => Ok(Json(ApiResponse::success(
+            bootstrap_yaml,
+            "Bootstrap configuration generated successfully",
+        ))),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
 pub async fn generate_envoy_config(
     State(app_state): State<AppState>,
     Json(payload): Json<GenerateConfigRequest>,

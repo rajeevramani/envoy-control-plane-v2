@@ -21,7 +21,7 @@ services:
       - "10000:10000"  # Envoy proxy port (for client requests)
       - "9901:9901"    # Envoy admin interface
     volumes:
-      - ./tests/e2e/envoy-bootstrap.yaml:/etc/envoy/envoy.yaml:ro
+      - ./tests/e2e/envoy-bootstrap-generated.yaml:/etc/envoy/envoy.yaml:ro
     depends_on:
       control-plane:
         condition: service_healthy

@@ -29,6 +29,7 @@ pub fn create_router(store: ConfigStore, xds_server: SimpleXdsServer) -> Router 
         .route("/clusters/:name", delete(handlers::delete_cluster))
         // Config generation
         .route("/generate-config", post(handlers::generate_envoy_config))
+        .route("/generate-bootstrap", get(handlers::generate_bootstrap_config))
         // Health check
         .route("/health", get(health_check))
         // Share the app state across all handlers

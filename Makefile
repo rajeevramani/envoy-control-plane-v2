@@ -76,6 +76,12 @@ clean-all: clean ## Clean everything including Docker images
 	docker rmi envoy-control-plane 2>/dev/null || true
 
 # E2E Testing
+e2e-generate-bootstrap: ## Generate Envoy bootstrap configuration from our config
+	@echo "🔧 Generating Envoy bootstrap configuration..."
+	@mkdir -p tests/e2e
+	@curl -s http://localhost:8080/generate-bootstrap | jq -r '.data' > tests/e2e/envoy-bootstrap-generated.yaml
+	@echo "✅ Bootstrap generated at tests/e2e/envoy-bootstrap-generated.yaml"
+
 e2e-up: ## Start E2E test environment
 	docker-compose -f docker-compose.test.yml up --build -d
 
@@ -85,11 +91,19 @@ e2e-down: ## Stop E2E test environment
 e2e-test: ## Run E2E tests (assumes services are running)
 	cargo test --test e2e_integration_tests -- --ignored --nocapture
 
-e2e-full: ## Run complete E2E test suite
+e2e-full: ## Run complete E2E test suite  
 	@echo "🚀 Starting complete E2E test suite..."
-	@make e2e-up
-	@echo "⏳ Waiting for services to be ready..."
-	@sleep 15
+	@echo "📋 Step 1: Starting control plane and test backend..."
+	@docker-compose -f docker-compose.test.yml up --build -d control-plane test-backend
+	@echo "⏳ Waiting for control plane to be ready..."
+	@sleep 10
+	@echo "🔧 Step 2: Generating Envoy bootstrap from control plane config..."
+	@make e2e-generate-bootstrap
+	@echo "🚀 Step 3: Starting Envoy with generated bootstrap..."
+	@docker-compose -f docker-compose.test.yml up -d envoy
+	@echo "⏳ Waiting for Envoy to start with new bootstrap..."
+	@sleep 5
+	@echo "🧪 Step 4: Running E2E tests..."
 	@make e2e-test || (make e2e-down && exit 1)
 	@make e2e-down
 	@echo "✅ E2E test suite completed!"

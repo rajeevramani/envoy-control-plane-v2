@@ -169,9 +169,9 @@ impl ProtoConverter {
                     cluster.lb_policy.as_ref().unwrap_or(&LoadBalancingPolicy::RoundRobin)
                 ),
                 load_assignment: Some(load_assignment),
-                connect_timeout: Some(envoy_types::pb::google::protobuf::Duration { 
-                    seconds: app_config.envoy_generation.cluster.connect_timeout_seconds as i64, 
-                    nanos: 0 
+                connect_timeout: Some(envoy_types::pb::google::protobuf::Duration {
+                    seconds: app_config.envoy_generation.cluster.connect_timeout_seconds as i64,
+                    nanos: 0
                 }),
                 dns_lookup_family: Self::dns_lookup_family_to_proto(&app_config.envoy_generation.cluster.dns_lookup_family),
                 ..Default::default()
@@ -229,7 +229,10 @@ impl ProtoConverter {
             "V6_ONLY" => DnsLookupFamily::V6Only as i32,
             "AUTO" => DnsLookupFamily::Auto as i32,
             _ => {
-                println!("⚠️  Unknown DNS lookup family '{}', defaulting to V4_ONLY", dns_family);
+                println!(
+                    "⚠️  Unknown DNS lookup family '{}', defaulting to V4_ONLY",
+                    dns_family
+                );
                 DnsLookupFamily::V4Only as i32
             }
         }

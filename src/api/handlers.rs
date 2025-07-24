@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::api::routes::AppState;
 use crate::config::AppConfig;
 use crate::envoy::ConfigGenerator;
-use crate::storage::{Cluster, Endpoint, LoadBalancingPolicy, Route};
+use crate::storage::{Cluster, Endpoint, Route};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateRouteRequest {
@@ -141,13 +141,17 @@ pub async fn create_cluster(
             }
 
             // Convert string to enum and create cluster
-            let lb_policy = LoadBalancingPolicy::from_str(&policy_str);
+            let lb_policy = policy_str.parse().unwrap(); // Safe because FromStr never fails
             Cluster::with_lb_policy(payload.name, endpoints, lb_policy)
         }
         None => {
             // No policy specified - use default from config
-            let default_policy =
-                LoadBalancingPolicy::from_str(&config.control_plane.load_balancing.default_policy);
+            let default_policy = config
+                .control_plane
+                .load_balancing
+                .default_policy
+                .parse()
+                .unwrap(); // Safe because FromStr never fails
             Cluster::with_lb_policy(payload.name, endpoints, default_policy)
         }
     };

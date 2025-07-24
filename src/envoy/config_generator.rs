@@ -214,10 +214,19 @@ admin:
 "#,
             app_config.envoy_generation.bootstrap.node_id,
             app_config.envoy_generation.bootstrap.node_cluster,
-            app_config.envoy_generation.bootstrap.control_plane_cluster_name,
-            app_config.envoy_generation.bootstrap.control_plane_cluster_name,
+            app_config
+                .envoy_generation
+                .bootstrap
+                .control_plane_cluster_name,
+            app_config
+                .envoy_generation
+                .bootstrap
+                .control_plane_cluster_name,
             app_config.envoy_generation.cluster.discovery_type,
-            app_config.envoy_generation.bootstrap.control_plane_cluster_name,
+            app_config
+                .envoy_generation
+                .bootstrap
+                .control_plane_cluster_name,
             app_config.envoy_generation.bootstrap.control_plane_host,
             app_config.control_plane.server.xds_port,
             app_config.envoy_generation.cluster.connect_timeout_seconds,
@@ -258,7 +267,11 @@ admin:
         Ok(envoy_config)
     }
 
-    fn create_listener(routes: Vec<Route>, port: u16, app_config: &AppConfig) -> anyhow::Result<Listener> {
+    fn create_listener(
+        routes: Vec<Route>,
+        port: u16,
+        app_config: &AppConfig,
+    ) -> anyhow::Result<Listener> {
         let envoy_routes: Vec<EnvoyRoute> = routes
             .into_iter()
             .map(|route| EnvoyRoute {
@@ -308,7 +321,10 @@ admin:
         })
     }
 
-    fn create_clusters(clusters: Vec<Cluster>, app_config: &AppConfig) -> anyhow::Result<Vec<EnvoyCluster>> {
+    fn create_clusters(
+        clusters: Vec<Cluster>,
+        app_config: &AppConfig,
+    ) -> anyhow::Result<Vec<EnvoyCluster>> {
         clusters
             .into_iter()
             .map(|cluster| {

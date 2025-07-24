@@ -16,11 +16,28 @@ build-release: ## Build the application in release mode
 build-release-linux: ## Build the application for Linux (for Docker)
 	cargo build --release --target aarch64-unknown-linux-gnu
 
-test: ## Run all tests
+test: ## Run all unit and integration tests (excludes E2E)
 	cargo test
 
 test-verbose: ## Run tests with verbose output
 	cargo test -- --nocapture
+
+test-unit: ## Run unit tests only (fast)
+	cargo test --lib
+
+test-integration: ## Run integration tests only
+	cargo test --test protobuf_conversion_tests
+	cargo test --test rest_api_tests
+	cargo test --test versioning_tests
+	cargo test --test xds_integration_tests
+
+test-all: ## Run all tests including E2E
+	@echo "🧪 Running complete test suite..."
+	@echo "📋 Step 1: Unit and integration tests..."
+	@make test
+	@echo "📋 Step 2: E2E tests..."
+	@make e2e-full
+	@echo "✅ All tests completed!"
 
 lint: ## Run clippy linter
 	cargo clippy --all-targets --all-features -- -D warnings
@@ -31,7 +48,7 @@ format: ## Format code with rustfmt
 format-check: ## Check if code is formatted
 	cargo fmt --all -- --check
 
-check: format-check lint test ## Run all checks (format, lint, test)
+check: format-check lint test ## Run all checks (format, lint, unit+integration tests)
 
 clean: ## Clean build artifacts
 	cargo clean
@@ -82,17 +99,8 @@ e2e-generate-bootstrap: ## Generate Envoy bootstrap configuration from our confi
 	@curl -s http://localhost:8080/generate-bootstrap | jq -r '.data' > tests/e2e/envoy-bootstrap-generated.yaml
 	@echo "✅ Bootstrap generated at tests/e2e/envoy-bootstrap-generated.yaml"
 
-e2e-up: ## Start E2E test environment
-	docker-compose -f docker-compose.test.yml up --build -d
-
-e2e-down: ## Stop E2E test environment
-	docker-compose -f docker-compose.test.yml down --volumes --remove-orphans
-
-e2e-test: ## Run E2E tests (assumes services are running)
-	cargo test --test e2e_integration_tests -- --ignored --nocapture
-
-e2e-full: ## Run complete E2E test suite  
-	@echo "🚀 Starting complete E2E test suite..."
+e2e-up: ## Start E2E test environment with generated bootstrap
+	@echo "🚀 Starting E2E environment with generated bootstrap..."
 	@echo "📋 Step 1: Starting control plane and test backend..."
 	@docker-compose -f docker-compose.test.yml up --build -d control-plane test-backend
 	@echo "⏳ Waiting for control plane to be ready..."
@@ -101,10 +109,26 @@ e2e-full: ## Run complete E2E test suite
 	@make e2e-generate-bootstrap
 	@echo "🚀 Step 3: Starting Envoy with generated bootstrap..."
 	@docker-compose -f docker-compose.test.yml up -d envoy
-	@echo "⏳ Waiting for Envoy to start with new bootstrap..."
+	@echo "✅ E2E environment ready!"
+
+e2e-down: ## Stop E2E test environment and clean up generated files
+	@echo "🧹 Cleaning up E2E environment..."
+	docker-compose -f docker-compose.test.yml down --volumes --remove-orphans
+	@echo "🗑️  Removing generated bootstrap file..."
+	@rm -f tests/e2e/envoy-bootstrap-generated.yaml
+	@echo "✅ E2E environment cleaned up!"
+
+e2e-test: ## Run E2E tests (assumes services are running)
+	cargo test --test e2e_integration_tests -- --ignored --nocapture
+
+e2e-full: ## Run complete E2E test suite  
+	@echo "🚀 Starting complete E2E test suite..."
+	@make e2e-up
+	@echo "⏳ Waiting for Envoy to be ready..."
 	@sleep 5
-	@echo "🧪 Step 4: Running E2E tests..."
+	@echo "🧪 Running E2E tests..."
 	@make e2e-test || (make e2e-down && exit 1)
+	@echo "🧹 Cleaning up E2E environment..."
 	@make e2e-down
 	@echo "✅ E2E test suite completed!"
 

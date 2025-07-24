@@ -43,7 +43,7 @@ impl SimpleXdsServer {
     /// This should be called whenever resources are added/updated/deleted
     pub fn increment_version(&self) {
         let new_version = self.version_counter.fetch_add(1, Ordering::SeqCst) + 1;
-        println!("📈 Version incremented to: {}", new_version);
+        println!("📈 Version incremented to: {new_version}");
 
         // Notify all connected Envoy instances of the update
         // We ignore the error if no receivers are listening
@@ -145,7 +145,7 @@ impl aggregated_discovery_service_server::AggregatedDiscoveryService for SimpleX
                                 break;
                             }
                             Err(e) => {
-                                println!("❌ ADS: Stream error: {}", e);
+                                println!("❌ ADS: Stream error: {e}");
                                 // Don't break on error, just continue
                                 continue;
                             }
@@ -158,17 +158,17 @@ impl aggregated_discovery_service_server::AggregatedDiscoveryService for SimpleX
 
                         // Only send updates if version has changed and we have types to update
                         if current_version > last_sent_version && !pending_types.is_empty() {
-                            println!("🔄 ADS: Pushing resource updates for version: {}", current_version);
+                            println!("🔄 ADS: Pushing resource updates for version: {current_version}");
 
                             // Send updates for all types this client is interested in
                             for type_url in &pending_types {
                                 let resources = match ProtoConverter::get_resources_by_type(type_url, &store) {
                                     Ok(resources) => {
-                                        println!("✅ ADS: Found {} resources for type: {}", resources.len(), type_url);
+                                        println!("✅ ADS: Found {} resources for type: {type_url}", resources.len());
                                         resources
                                     }
                                     Err(e) => {
-                                        println!("❌ ADS: Error getting resources for type {}: {}", type_url, e);
+                                        println!("❌ ADS: Error getting resources for type {type_url}: {e}");
                                         vec![]
                                     }
                                 };
@@ -182,7 +182,7 @@ impl aggregated_discovery_service_server::AggregatedDiscoveryService for SimpleX
                                     nonce: response_nonce.clone(),
                                 };
 
-                                println!("📤 ADS: Pushing update for type: {}, nonce: {}, version: {}", type_url, response_nonce, current_version);
+                                println!("📤 ADS: Pushing update for type: {type_url}, nonce: {response_nonce}, version: {current_version}");
 
                                 if tx.send(Ok(response)).await.is_err() {
                                     println!("❌ ADS: Failed to send push update");

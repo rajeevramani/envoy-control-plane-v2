@@ -1,3 +1,5 @@
+#![allow(clippy::uninlined_format_args)]
+
 use serde_json::json;
 use std::time::Duration;
 use tokio::time::sleep;

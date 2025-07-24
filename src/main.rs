@@ -35,8 +35,8 @@ async fn main() -> anyhow::Result<()> {
     );
 
     println!("Envoy Control Plane starting...");
-    println!("REST API running on http://{}", rest_addr);
-    println!("xDS gRPC server running on http://{}", xds_addr);
+    println!("REST API running on http://{rest_addr}");
+    println!("xDS gRPC server running on http://{xds_addr}");
 
     // Start REST server
     let rest_listener = TcpListener::bind(&rest_addr).await?;
@@ -56,12 +56,12 @@ async fn main() -> anyhow::Result<()> {
     tokio::select! {
         result = rest_server => {
             if let Err(e) = result {
-                eprintln!("REST server error: {}", e);
+                eprintln!("REST server error: {e}");
             }
         }
         result = xds_service => {
             if let Err(e) = result {
-                eprintln!("xDS server error: {}", e);
+                eprintln!("xDS server error: {e}");
             }
         }
     }

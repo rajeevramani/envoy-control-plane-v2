@@ -32,7 +32,7 @@ impl ProtoConverter {
             LoadBalancingPolicy::Custom(policy_name) => {
                 // For custom policies, we'll need to handle them specially
                 // For now, log a warning and fall back to RoundRobin
-                println!("⚠️  Custom policy '{}' not directly supported in protobuf enum, using RoundRobin", policy_name);
+                println!("⚠️  Custom policy '{policy_name}' not directly supported in protobuf enum, using RoundRobin");
                 LbPolicy::RoundRobin as i32
             }
         }
@@ -215,7 +215,7 @@ impl ProtoConverter {
             // For other types (listeners, endpoints, etc.) return empty for now
             // This matches the Go control plane pattern where unsupported types return empty
             _ => {
-                println!("ℹ️  Unsupported resource type: {}", type_url);
+                println!("ℹ️  Unsupported resource type: {type_url}");
                 Ok(vec![])
             }
         }
@@ -229,10 +229,7 @@ impl ProtoConverter {
             "V6_ONLY" => DnsLookupFamily::V6Only as i32,
             "AUTO" => DnsLookupFamily::Auto as i32,
             _ => {
-                println!(
-                    "⚠️  Unknown DNS lookup family '{}', defaulting to V4_ONLY",
-                    dns_family
-                );
+                println!("⚠️  Unknown DNS lookup family '{dns_family}', defaulting to V4_ONLY");
                 DnsLookupFamily::V4Only as i32
             }
         }
@@ -245,7 +242,7 @@ impl ProtoConverter {
             "TCP" => Protocol::Tcp as i32,
             "UDP" => Protocol::Udp as i32,
             _ => {
-                println!("⚠️  Unknown protocol '{}', defaulting to TCP", protocol);
+                println!("⚠️  Unknown protocol '{protocol}', defaulting to TCP");
                 Protocol::Tcp as i32
             }
         }

@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+pub mod validation;
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AppConfig {
     pub control_plane: ControlPlaneConfig,
@@ -43,6 +45,7 @@ pub struct EnvoyGenerationConfig {
     pub cluster: ClusterConfig,
     pub naming: NamingConfig,
     pub bootstrap: BootstrapConfig,
+    pub http_filters: HttpFiltersConfig,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -82,12 +85,24 @@ pub struct BootstrapConfig {
     pub control_plane_cluster_name: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct HttpFiltersConfig {
+    pub stat_prefix: String,
+    pub router_filter_name: String,
+    pub hcm_filter_name: String,
+}
+
 impl AppConfig {
     pub fn load() -> anyhow::Result<Self> {
         let settings = config::Config::builder()
             .add_source(config::File::with_name("config"))
             .build()?;
 
-        Ok(settings.try_deserialize()?)
+        let config: Self = settings.try_deserialize()?;
+        
+        // Validate the loaded configuration
+        validation::validate_config(&config)?;
+        
+        Ok(config)
     }
 }

@@ -46,3 +46,7 @@ envoy_generation:
     control_plane_host: "control-plane" # Control plane service name (Docker)
     main_listener_name: "main_listener" # Main proxy listener name
     control_plane_cluster_name: "control_plane_cluster" # Static cluster name for control plane
+  http_filters:
+    stat_prefix: "ingress_http"        # HTTP connection manager statistics prefix
+    router_filter_name: "envoy.filters.http.router" # HTTP router filter name
+    hcm_filter_name: "envoy.filters.network.http_connection_manager" # HTTP connection manager filter name

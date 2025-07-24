@@ -189,10 +189,10 @@ static_resources:
         port_value: {}
     filter_chains:
     - filters:
-      - name: envoy.filters.network.http_connection_manager
+      - name: {}
         typed_config:
           "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
-          stat_prefix: ingress_http
+          stat_prefix: {}
           # Get routes dynamically from our control plane
           rds:
             config_source:
@@ -200,7 +200,7 @@ static_resources:
               resource_api_version: V3
             route_config_name: {}
           http_filters:
-          - name: envoy.filters.http.router
+          - name: {}
             typed_config:
               "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
 
@@ -234,7 +234,10 @@ admin:
             app_config.envoy_generation.cluster.default_protocol,
             app_config.envoy_generation.listener.binding_address,
             app_config.envoy_generation.listener.default_port,
+            app_config.envoy_generation.http_filters.hcm_filter_name,
+            app_config.envoy_generation.http_filters.stat_prefix,
             app_config.envoy_generation.naming.route_config_name,
+            app_config.envoy_generation.http_filters.router_filter_name,
             app_config.envoy_generation.admin.host,
             app_config.envoy_generation.admin.port,
         );
@@ -291,13 +294,13 @@ admin:
 
         let http_conn_manager = HttpConnectionManager {
             type_url: "type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager".to_string(),
-            stat_prefix: "ingress_http".to_string(),
+            stat_prefix: app_config.envoy_generation.http_filters.stat_prefix.clone(),
             route_config: RouteConfiguration {
                 name: app_config.envoy_generation.naming.route_config_name.clone(),
                 virtual_hosts: vec![virtual_host],
             },
             http_filters: vec![HttpFilter {
-                name: "envoy.filters.http.router".to_string(),
+                name: app_config.envoy_generation.http_filters.router_filter_name.clone(),
                 typed_config: Some(RouterConfig {
                     type_url: "type.googleapis.com/envoy.extensions.filters.http.router.v3.Router".to_string(),
                 }),
@@ -314,7 +317,11 @@ admin:
             },
             filter_chains: vec![FilterChain {
                 filters: vec![Filter {
-                    name: "envoy.filters.network.http_connection_manager".to_string(),
+                    name: app_config
+                        .envoy_generation
+                        .http_filters
+                        .hcm_filter_name
+                        .clone(),
                     typed_config: http_conn_manager,
                 }],
             }],

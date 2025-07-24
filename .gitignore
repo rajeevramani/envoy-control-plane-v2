@@ -1,8 +1,45 @@
+# Rust build artifacts
 /target
+Cargo.lock
 
+# Generated files
+configs/
+tests/e2e/envoy-bootstrap-generated.yaml
+
+# Development and temporary files
 development-log.md
 requirements.md
 test-api.md
 LEARNING-PLAN.md
 modifications_for_later.md
+static-envoy-config-api.http
+testing-api.http
+test-grpc.sh
+
+# Old hardcoded files (replaced by dynamic generation)
+envoy-bootstrap.yaml
+tests/e2e/envoy-bootstrap.yaml
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
 

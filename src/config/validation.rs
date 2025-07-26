@@ -163,7 +163,7 @@ fn validate_hostname(hostname: &str) -> Result<()> {
         if !c.is_ascii_alphanumeric() && c != '.' && c != '-' {
             bail!(ValidationError::InvalidHost {
                 host: hostname.to_string(),
-                reason: format!("hostname contains invalid character '{}'", c),
+                reason: format!("hostname contains invalid character '{c}'"),
             });
         }
     }
@@ -366,7 +366,7 @@ mod tests {
             config.control_plane.server.host = ip.to_string();
 
             let result = validate_config(&config);
-            assert!(result.is_ok(), "IP {} should be valid", ip);
+            assert!(result.is_ok(), "IP {ip} should be valid");
         }
     }
 
@@ -379,7 +379,7 @@ mod tests {
             config.control_plane.server.host = hostname.to_string();
 
             let result = validate_config(&config);
-            assert!(result.is_ok(), "Hostname {} should be valid", hostname);
+            assert!(result.is_ok(), "Hostname {hostname} should be valid");
         }
     }
 

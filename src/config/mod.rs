@@ -107,10 +107,10 @@ impl AppConfig {
             .build()?;
 
         let config: Self = settings.try_deserialize()?;
-        
+
         // Validate the loaded configuration
         validation::validate_config(&config)?;
-        
+
         Ok(config)
     }
 

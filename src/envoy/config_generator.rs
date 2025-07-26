@@ -395,25 +395,26 @@ mod tests {
     fn test_bootstrap_config_with_tls_enabled() {
         let mut config = AppConfig::create_test_config();
         config.control_plane.tls.enabled = true;
-        
+
         let bootstrap_yaml = ConfigGenerator::generate_bootstrap_config(&config)
             .expect("Should generate bootstrap config");
-        
+
         // Should contain TLS transport socket configuration
         assert!(bootstrap_yaml.contains("transport_socket:"));
         assert!(bootstrap_yaml.contains("envoy.transport_sockets.tls"));
         assert!(bootstrap_yaml.contains("UpstreamTlsContext"));
-        assert!(bootstrap_yaml.contains("trust_chain_verification: ACCEPT_UNTRUSTED"));
+        assert!(bootstrap_yaml.contains("validation_context: {}"));
+        assert!(bootstrap_yaml.contains("sni: localhost"));
     }
 
     #[test]
     fn test_bootstrap_config_with_tls_disabled() {
         let mut config = AppConfig::create_test_config();
         config.control_plane.tls.enabled = false;
-        
+
         let bootstrap_yaml = ConfigGenerator::generate_bootstrap_config(&config)
             .expect("Should generate bootstrap config");
-        
+
         // Should NOT contain TLS transport socket configuration
         assert!(!bootstrap_yaml.contains("transport_socket:"));
         assert!(!bootstrap_yaml.contains("envoy.transport_sockets.tls"));
@@ -423,10 +424,10 @@ mod tests {
     #[test]
     fn test_bootstrap_config_yaml_structure() {
         let config = AppConfig::create_test_config();
-        
+
         let bootstrap_yaml = ConfigGenerator::generate_bootstrap_config(&config)
             .expect("Should generate bootstrap config");
-        
+
         // Verify basic YAML structure is present
         assert!(bootstrap_yaml.contains("node:"));
         assert!(bootstrap_yaml.contains("dynamic_resources:"));

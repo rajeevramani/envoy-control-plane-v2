@@ -5,6 +5,15 @@ Cargo.lock
 # Generated files
 configs/
 tests/e2e/envoy-bootstrap-generated.yaml
+tests/e2e/envoy-bootstrap-tls.yaml
+tests/e2e/envoy-bootstrap-plain.yaml
+.env.test
+
+# Security - Never commit certificates or private keys
+certs/
+*.crt
+*.key
+*.pem
 
 # Development and temporary files
 development-log.md

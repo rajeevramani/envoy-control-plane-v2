@@ -140,6 +140,22 @@ pub struct ConfigGenerator;
 impl ConfigGenerator {
     /// Generate Envoy bootstrap configuration using our config system
     pub fn generate_bootstrap_config(app_config: &AppConfig) -> anyhow::Result<String> {
+        // Build the TLS transport socket configuration if TLS is enabled
+        let transport_socket_config = if app_config.control_plane.tls.enabled {
+            r#"
+    transport_socket:
+      name: envoy.transport_sockets.tls
+      typed_config:
+        "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+        common_tls_context:
+          # For self-signed certificates in development - disable certificate verification entirely
+          validation_context: {}
+        # Use SNI to match certificate  
+        sni: localhost"#
+        } else {
+            ""
+        };
+
         let bootstrap_yaml = format!(
             r#"node:
   id: {}
@@ -177,7 +193,7 @@ static_resources:
               socket_address:
                 address: {}
                 port_value: {}
-    connect_timeout: {}s
+    connect_timeout: {}s{}
     
   # Define the main listener that will proxy client requests
   listeners:
@@ -230,6 +246,7 @@ admin:
             app_config.envoy_generation.bootstrap.control_plane_host,
             app_config.control_plane.server.xds_port,
             app_config.envoy_generation.cluster.connect_timeout_seconds,
+            transport_socket_config,
             app_config.envoy_generation.bootstrap.main_listener_name,
             app_config.envoy_generation.cluster.default_protocol,
             app_config.envoy_generation.listener.binding_address,
@@ -367,5 +384,55 @@ admin:
         let yaml_content = serde_yaml::to_string(config)?;
         fs::write(file_path, yaml_content)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_bootstrap_config_with_tls_enabled() {
+        let mut config = AppConfig::create_test_config();
+        config.control_plane.tls.enabled = true;
+        
+        let bootstrap_yaml = ConfigGenerator::generate_bootstrap_config(&config)
+            .expect("Should generate bootstrap config");
+        
+        // Should contain TLS transport socket configuration
+        assert!(bootstrap_yaml.contains("transport_socket:"));
+        assert!(bootstrap_yaml.contains("envoy.transport_sockets.tls"));
+        assert!(bootstrap_yaml.contains("UpstreamTlsContext"));
+        assert!(bootstrap_yaml.contains("trust_chain_verification: ACCEPT_UNTRUSTED"));
+    }
+
+    #[test]
+    fn test_bootstrap_config_with_tls_disabled() {
+        let mut config = AppConfig::create_test_config();
+        config.control_plane.tls.enabled = false;
+        
+        let bootstrap_yaml = ConfigGenerator::generate_bootstrap_config(&config)
+            .expect("Should generate bootstrap config");
+        
+        // Should NOT contain TLS transport socket configuration
+        assert!(!bootstrap_yaml.contains("transport_socket:"));
+        assert!(!bootstrap_yaml.contains("envoy.transport_sockets.tls"));
+        assert!(!bootstrap_yaml.contains("UpstreamTlsContext"));
+    }
+
+    #[test]
+    fn test_bootstrap_config_yaml_structure() {
+        let config = AppConfig::create_test_config();
+        
+        let bootstrap_yaml = ConfigGenerator::generate_bootstrap_config(&config)
+            .expect("Should generate bootstrap config");
+        
+        // Verify basic YAML structure is present
+        assert!(bootstrap_yaml.contains("node:"));
+        assert!(bootstrap_yaml.contains("dynamic_resources:"));
+        assert!(bootstrap_yaml.contains("static_resources:"));
+        assert!(bootstrap_yaml.contains("clusters:"));
+        assert!(bootstrap_yaml.contains("listeners:"));
+        assert!(bootstrap_yaml.contains("admin:"));
     }
 }

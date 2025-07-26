@@ -1,27 +1,36 @@
+# E2E Testing Environment - TLS Enabled
+# This compose file is used when TLS is enabled in config.yaml
 services:
-  # Our control plane service
+  # Our control plane service with TLS enabled
   control-plane:
     build: .
     ports:
-      - "8080:8080"   # REST API
-      - "18000:18000" # xDS gRPC
+      - "8080:8080"   # REST API (always plain HTTP)
+      - "18000:18000" # xDS gRPC (TLS enabled)
+    volumes:
+      - ./certs:/app/certs:ro  # Mount TLS certificates - REQUIRED for TLS
+      - ./config.e2e.yaml:/app/config.yaml:ro  # Mount e2e configuration with Docker service names
+    environment:
+      - RUST_LOG=info
+      - TLS_CERT_PATH=/app/certs/server.crt  # Override config.yaml paths for Docker
+      - TLS_KEY_PATH=/app/certs/server.key
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 5s
       timeout: 3s
       retries: 5
-      start_period: 10s
+      start_period: 15s  # Longer startup time for TLS cert loading
     networks:
       - test-network
 
-  # Envoy proxy that will connect to our control plane
+  # Envoy proxy that will connect to our control plane via TLS
   envoy:
     image: envoyproxy/envoy:v1.24-latest
     ports:
       - "10000:10000"  # Envoy proxy port (for client requests)
       - "9901:9901"    # Envoy admin interface
     volumes:
-      - ./tests/e2e/envoy-bootstrap-generated.yaml:/etc/envoy/envoy.yaml:ro
+      - ./tests/e2e/envoy-bootstrap-tls.yaml:/etc/envoy/envoy.yaml:ro
     depends_on:
       control-plane:
         condition: service_healthy

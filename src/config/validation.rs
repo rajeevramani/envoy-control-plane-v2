@@ -1,4 +1,4 @@
-use super::{AppConfig, ServerConfig, EnvoyGenerationConfig};
+use super::{AppConfig, EnvoyGenerationConfig, ServerConfig};
 use anyhow::{bail, Result};
 
 /// Configuration validation errors with helpful messages
@@ -6,17 +6,17 @@ use anyhow::{bail, Result};
 pub enum ValidationError {
     #[error("Port {port} is invalid: {reason}")]
     InvalidPort { port: u16, reason: String },
-    
+
     #[error("Port conflict: {port1_name} and {port2_name} both use port {port}")]
     PortConflict {
         port1_name: String,
         port2_name: String,
         port: u16,
     },
-    
+
     #[error("Invalid host address '{host}': {reason}")]
     InvalidHost { host: String, reason: String },
-    
+
     #[error("Invalid timeout value {value}: {reason}")]
     InvalidTimeout { value: u64, reason: String },
 }
@@ -33,13 +33,13 @@ fn validate_server_config(server: &ServerConfig) -> Result<()> {
     // Validate individual ports
     validate_port(server.rest_port, "rest_port")?;
     validate_port(server.xds_port, "xds_port")?;
-    
+
     // Validate no port conflicts
     validate_no_port_conflicts(server)?;
-    
+
     // Validate host address
     validate_host(&server.host)?;
-    
+
     Ok(())
 }
 
@@ -51,13 +51,15 @@ fn validate_port(port: u16, port_name: &str) -> Result<()> {
             reason: format!("{port_name} cannot be 0 (reserved)")
         });
     }
-    
+
     // Note: u16 max is 65535, so we don't need to check upper bound
     // But we could warn about privileged ports
     if port < 1024 {
-        eprintln!("⚠️  Warning: {port_name} {port} is a privileged port (requires root on Unix systems)");
+        eprintln!(
+            "⚠️  Warning: {port_name} {port} is a privileged port (requires root on Unix systems)"
+        );
     }
-    
+
     Ok(())
 }
 
@@ -70,7 +72,7 @@ fn validate_no_port_conflicts(server: &ServerConfig) -> Result<()> {
             port: server.rest_port,
         });
     }
-    
+
     Ok(())
 }
 
@@ -82,7 +84,7 @@ fn validate_host(host: &str) -> Result<()> {
             reason: "host cannot be empty".to_string(),
         });
     }
-    
+
     // Check for obvious invalid characters
     if host.contains(' ') {
         bail!(ValidationError::InvalidHost {
@@ -90,14 +92,14 @@ fn validate_host(host: &str) -> Result<()> {
             reason: "host cannot contain spaces".to_string(),
         });
     }
-    
+
     // Try to determine if it's an IP address or hostname
     if is_ip_address(host) {
         validate_ip_address(host)?;
     } else {
         validate_hostname(host)?;
     }
-    
+
     Ok(())
 }
 
@@ -109,7 +111,7 @@ fn is_ip_address(host: &str) -> bool {
 /// Validates IP address format and ranges
 fn validate_ip_address(ip: &str) -> Result<()> {
     let parts: Vec<&str> = ip.split('.').collect();
-    
+
     // Must have exactly 4 parts
     if parts.len() != 4 {
         bail!(ValidationError::InvalidHost {
@@ -117,7 +119,7 @@ fn validate_ip_address(ip: &str) -> Result<()> {
             reason: "IP address must have 4 octets separated by dots".to_string(),
         });
     }
-    
+
     // Each part must be a valid number 0-255
     for (i, part) in parts.iter().enumerate() {
         if part.is_empty() {
@@ -126,7 +128,7 @@ fn validate_ip_address(ip: &str) -> Result<()> {
                 reason: format!("IP address octet {} is empty", i + 1),
             });
         }
-        
+
         match part.parse::<u16>() {
             Ok(num) if num <= 255 => continue,
             Ok(num) => bail!(ValidationError::InvalidHost {
@@ -135,11 +137,15 @@ fn validate_ip_address(ip: &str) -> Result<()> {
             }),
             Err(_) => bail!(ValidationError::InvalidHost {
                 host: ip.to_string(),
-                reason: format!("IP address octet {} ('{}') is not a valid number", i + 1, part),
+                reason: format!(
+                    "IP address octet {} ('{}') is not a valid number",
+                    i + 1,
+                    part
+                ),
             }),
         }
     }
-    
+
     Ok(())
 }
 
@@ -151,7 +157,7 @@ fn validate_hostname(hostname: &str) -> Result<()> {
             reason: "hostname cannot exceed 253 characters".to_string(),
         });
     }
-    
+
     // Check for invalid characters (basic check)
     for c in hostname.chars() {
         if !c.is_ascii_alphanumeric() && c != '.' && c != '-' {
@@ -161,7 +167,7 @@ fn validate_hostname(hostname: &str) -> Result<()> {
             });
         }
     }
-    
+
     // Cannot start or end with dash
     if hostname.starts_with('-') || hostname.ends_with('-') {
         bail!(ValidationError::InvalidHost {
@@ -169,7 +175,7 @@ fn validate_hostname(hostname: &str) -> Result<()> {
             reason: "hostname cannot start or end with dash".to_string(),
         });
     }
-    
+
     Ok(())
 }
 
@@ -178,55 +184,60 @@ fn validate_envoy_config(envoy: &EnvoyGenerationConfig) -> Result<()> {
     // Validate all ports in Envoy config
     validate_port(envoy.admin.port, "admin.port")?;
     validate_port(envoy.listener.default_port, "listener.default_port")?;
-    
+
     // Validate timeout values
-    validate_timeout(envoy.cluster.connect_timeout_seconds, "cluster.connect_timeout_seconds")?;
-    
+    validate_timeout(
+        envoy.cluster.connect_timeout_seconds,
+        "cluster.connect_timeout_seconds",
+    )?;
+
     // Validate admin host
     validate_host(&envoy.admin.host)?;
     validate_host(&envoy.listener.binding_address)?;
-    
+
     Ok(())
 }
 
 /// Validates timeout values (must be reasonable for network operations)
 fn validate_timeout(timeout_seconds: u64, field_name: &str) -> Result<()> {
-    const MIN_TIMEOUT: u64 = 1;   // At least 1 second
+    const MIN_TIMEOUT: u64 = 1; // At least 1 second
     const MAX_TIMEOUT: u64 = 300; // At most 5 minutes
-    
+
     if timeout_seconds == 0 {
         bail!(ValidationError::InvalidTimeout {
             value: timeout_seconds,
             reason: format!("{field_name} cannot be 0 (no timeout doesn't make sense)")
         });
     }
-    
+
     if timeout_seconds < MIN_TIMEOUT {
         bail!(ValidationError::InvalidTimeout {
             value: timeout_seconds,
             reason: format!("{field_name} must be at least {MIN_TIMEOUT} second(s)")
         });
     }
-    
+
     if timeout_seconds > MAX_TIMEOUT {
         bail!(ValidationError::InvalidTimeout {
             value: timeout_seconds,
             reason: format!("{field_name} cannot exceed {MAX_TIMEOUT} seconds (too long)")
         });
     }
-    
+
     // Warn about very short timeouts that might cause issues
     if timeout_seconds < 5 {
         eprintln!("⚠️  Warning: {field_name} {timeout_seconds}s is quite short and may cause connection failures");
     }
-    
+
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{ControlPlaneConfig, LoggingConfig, LoadBalancingConfig, EnvoyGenerationConfig};
+    use crate::config::{
+        ControlPlaneConfig, EnvoyGenerationConfig, LoadBalancingConfig, LoggingConfig, TlsConfig,
+    };
     use std::path::PathBuf;
 
     fn create_test_config() -> AppConfig {
@@ -236,6 +247,11 @@ mod tests {
                     rest_port: 8080,
                     xds_port: 18000,
                     host: "0.0.0.0".to_string(),
+                },
+                tls: TlsConfig {
+                    cert_path: "./certs/server.crt".to_string(),
+                    key_path: "./certs/server.key".to_string(),
+                    enabled: true,
                 },
                 logging: LoggingConfig {
                     level: "info".to_string(),
@@ -295,7 +311,7 @@ mod tests {
     fn test_invalid_port_zero() {
         let mut config = create_test_config();
         config.control_plane.server.rest_port = 0;
-        
+
         let result = validate_config(&config);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("cannot be 0"));
@@ -305,7 +321,7 @@ mod tests {
     fn test_port_conflict() {
         let mut config = create_test_config();
         config.control_plane.server.xds_port = 8080; // Same as rest_port
-        
+
         let result = validate_config(&config);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Port conflict"));
@@ -315,7 +331,7 @@ mod tests {
     fn test_empty_host() {
         let mut config = create_test_config();
         config.control_plane.server.host = "".to_string();
-        
+
         let result = validate_config(&config);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("cannot be empty"));
@@ -325,7 +341,7 @@ mod tests {
     fn test_host_with_spaces() {
         let mut config = create_test_config();
         config.control_plane.server.host = "my host".to_string();
-        
+
         let result = validate_config(&config);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("contain spaces"));
@@ -335,7 +351,7 @@ mod tests {
     fn test_invalid_ip_address() {
         let mut config = create_test_config();
         config.control_plane.server.host = "192.168.1.300".to_string(); // 300 > 255
-        
+
         let result = validate_config(&config);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("must be 0-255"));
@@ -344,11 +360,11 @@ mod tests {
     #[test]
     fn test_valid_ip_addresses() {
         let valid_ips = vec!["0.0.0.0", "127.0.0.1", "192.168.1.1", "255.255.255.255"];
-        
+
         for ip in valid_ips {
             let mut config = create_test_config();
             config.control_plane.server.host = ip.to_string();
-            
+
             let result = validate_config(&config);
             assert!(result.is_ok(), "IP {} should be valid", ip);
         }
@@ -357,11 +373,11 @@ mod tests {
     #[test]
     fn test_valid_hostnames() {
         let valid_hostnames = vec!["localhost", "example.com", "my-server", "server1"];
-        
+
         for hostname in valid_hostnames {
             let mut config = create_test_config();
             config.control_plane.server.host = hostname.to_string();
-            
+
             let result = validate_config(&config);
             assert!(result.is_ok(), "Hostname {} should be valid", hostname);
         }
@@ -371,17 +387,20 @@ mod tests {
     fn test_invalid_hostname() {
         let mut config = create_test_config();
         config.control_plane.server.host = "-invalid".to_string(); // Cannot start with dash
-        
+
         let result = validate_config(&config);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("cannot start or end with dash"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("cannot start or end with dash"));
     }
 
     #[test]
     fn test_timeout_zero() {
         let mut config = create_test_config();
         config.envoy_generation.cluster.connect_timeout_seconds = 0;
-        
+
         let result = validate_config(&config);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("cannot be 0"));
@@ -391,17 +410,20 @@ mod tests {
     fn test_timeout_too_long() {
         let mut config = create_test_config();
         config.envoy_generation.cluster.connect_timeout_seconds = 400; // > 300 seconds
-        
+
         let result = validate_config(&config);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("cannot exceed 300 seconds"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("cannot exceed 300 seconds"));
     }
 
     #[test]
     fn test_valid_timeout() {
         let mut config = create_test_config();
         config.envoy_generation.cluster.connect_timeout_seconds = 30; // Valid timeout
-        
+
         let result = validate_config(&config);
         assert!(result.is_ok());
     }
@@ -410,9 +432,12 @@ mod tests {
     fn test_admin_port_validation() {
         let mut config = create_test_config();
         config.envoy_generation.admin.port = 0; // Invalid port
-        
+
         let result = validate_config(&config);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("admin.port cannot be 0"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("admin.port cannot be 0"));
     }
 }

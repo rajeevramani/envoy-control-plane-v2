@@ -1,6 +1,7 @@
 mod api;
 mod config;
 mod envoy;
+mod security;
 mod storage;
 mod xds;
 
@@ -36,21 +37,44 @@ async fn main() -> anyhow::Result<()> {
 
     println!("Envoy Control Plane starting...");
     println!("REST API running on http://{rest_addr}");
-    println!("xDS gRPC server running on http://{xds_addr}");
+
+    if config.control_plane.tls.enabled {
+        println!("xDS gRPC server running on https://{xds_addr} (TLS enabled)");
+    } else {
+        println!("xDS gRPC server running on http://{xds_addr} (TLS disabled)");
+    }
 
     // Start REST server
     let rest_listener = TcpListener::bind(&rest_addr).await?;
     let rest_server = axum::serve(rest_listener, app);
 
-    // Start xDS gRPC server
+    // Start xDS gRPC server (with optional TLS)
     let xds_server_addr = xds_addr.parse()?;
 
     println!("🔧 Registering gRPC services:");
     println!("  - AggregatedDiscoveryService (ADS)");
 
-    let xds_service = Server::builder()
-        .add_service(xds::AggregatedDiscoveryServiceServer::new(xds_server))
-        .serve(xds_server_addr);
+    // Create server with optional TLS based on configuration
+    let xds_service = if config.control_plane.tls.enabled {
+        println!("🔒 TLS enabled - creating secure gRPC server");
+
+        // Load TLS identity from configuration
+        let identity = security::load_tls_identity(&config.control_plane.tls)?;
+
+        // Create TLS-enabled server
+        let mut tls_server = security::create_tls_server(identity)?;
+
+        tls_server
+            .add_service(xds::AggregatedDiscoveryServiceServer::new(xds_server))
+            .serve(xds_server_addr)
+    } else {
+        println!("🔓 TLS disabled - creating plain gRPC server");
+
+        // Create plain gRPC server
+        Server::builder()
+            .add_service(xds::AggregatedDiscoveryServiceServer::new(xds_server))
+            .serve(xds_server_addr)
+    };
 
     // Run both servers concurrently
     tokio::select! {

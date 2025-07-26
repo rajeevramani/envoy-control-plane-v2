@@ -6,9 +6,9 @@ edition = "2021"
 [dependencies]
 # Web server framework
 axum = "0.7"
-tokio = { version = "1.0", features = ["full"] }
-tokio-stream = "0.1"
-tower = "0.4"
+tokio = { version = "1.46", features = ["full"] }
+tokio-stream = "0.1.17"
+tower = "0.5"
 tower-http = { version = "0.5", features = ["cors", "trace"] }
 
 # Serialization
@@ -37,9 +37,9 @@ config = "0.14"
 uuid = { version = "1.0", features = ["v4", "serde"] }
 
 # gRPC and protobuf for xDS
-tonic = "0.12"
-tonic-build = "0.12"
-tonic-reflection = "0.12"
+tonic = { version = "0.13.1", features = ["tls-ring"] }
+tonic-build = "0.13.1"
+tonic-reflection = "0.13.1"
 prost = "0.13"
 prost-types = "0.13"
 envoy-types = "0.6.0"
@@ -50,6 +50,7 @@ tokio-test = "0.4"
 reqwest = { version = "0.11", features = ["json"] }
 tower-test = "0.4"
 serial_test = "3.0"
+tempfile = "3.0"  # For creating temporary test files
 
 [build-dependencies]
-tonic-build = "0.12"
+tonic-build = "0.13.1"

@@ -1,6 +1,6 @@
 # ===========================================
-# CONTROL PLANE CONFIGURATION
-# Settings for our Rust control plane application
+# CONTROL PLANE CONFIGURATION - E2E TESTING
+# Settings for Docker Compose e2e testing environment
 # ===========================================
 control_plane:
   server:
@@ -23,8 +23,8 @@ control_plane:
     default_policy: "ROUND_ROBIN"  # Default when none specified
 
 # ===========================================
-# ENVOY CONFIGURATION GENERATION
-# Settings used when generating Envoy config files
+# ENVOY CONFIGURATION GENERATION - E2E TESTING
+# Settings used when generating Envoy config files for Docker
 # ===========================================
 envoy_generation:
   config_dir: "./configs"  # Where to write generated Envoy configs
@@ -47,7 +47,7 @@ envoy_generation:
   bootstrap:
     node_id: "envoy-test-node"         # Envoy node identifier
     node_cluster: "envoy-test-cluster" # Envoy node cluster name
-    control_plane_host: "127.0.0.1" # Control plane service name (local)
+    control_plane_host: "control-plane" # Control plane service name (Docker Compose)
     main_listener_name: "main_listener" # Main proxy listener name
     control_plane_cluster_name: "control_plane_cluster" # Static cluster name for control plane
   http_filters:

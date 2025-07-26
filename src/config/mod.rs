@@ -13,6 +13,7 @@ pub struct AppConfig {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ControlPlaneConfig {
     pub server: ServerConfig,
+    pub tls: TlsConfig,
     pub logging: LoggingConfig,
     pub load_balancing: LoadBalancingConfig,
 }
@@ -22,6 +23,13 @@ pub struct ServerConfig {
     pub rest_port: u16,
     pub xds_port: u16,
     pub host: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TlsConfig {
+    pub cert_path: String,
+    pub key_path: String,
+    pub enabled: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -99,10 +107,71 @@ impl AppConfig {
             .build()?;
 
         let config: Self = settings.try_deserialize()?;
-        
+
         // Validate the loaded configuration
         validation::validate_config(&config)?;
-        
+
         Ok(config)
+    }
+
+    #[cfg(test)]
+    pub fn create_test_config() -> Self {
+        AppConfig {
+            control_plane: ControlPlaneConfig {
+                server: ServerConfig {
+                    rest_port: 8080,
+                    xds_port: 18000,
+                    host: "0.0.0.0".to_string(),
+                },
+                tls: TlsConfig {
+                    cert_path: "./certs/server.crt".to_string(),
+                    key_path: "./certs/server.key".to_string(),
+                    enabled: true,
+                },
+                logging: LoggingConfig {
+                    level: "info".to_string(),
+                },
+                load_balancing: LoadBalancingConfig {
+                    envoy_version: "1.24".to_string(),
+                    available_policies: vec!["ROUND_ROBIN".to_string()],
+                    default_policy: "ROUND_ROBIN".to_string(),
+                },
+            },
+            envoy_generation: EnvoyGenerationConfig {
+                config_dir: PathBuf::from("./configs"),
+                admin: AdminConfig {
+                    host: "127.0.0.1".to_string(),
+                    port: 9901,
+                },
+                listener: ListenerConfig {
+                    binding_address: "0.0.0.0".to_string(),
+                    default_port: 10000,
+                },
+                cluster: ClusterConfig {
+                    connect_timeout_seconds: 5,
+                    discovery_type: "STRICT_DNS".to_string(),
+                    dns_lookup_family: "V4_ONLY".to_string(),
+                    default_protocol: "TCP".to_string(),
+                },
+                naming: NamingConfig {
+                    listener_name: "listener_0".to_string(),
+                    virtual_host_name: "local_service".to_string(),
+                    route_config_name: "local_route".to_string(),
+                    default_domains: vec!["*".to_string()],
+                },
+                bootstrap: BootstrapConfig {
+                    node_id: "envoy-test-node".to_string(),
+                    node_cluster: "envoy-test-cluster".to_string(),
+                    control_plane_host: "control-plane".to_string(),
+                    main_listener_name: "main_listener".to_string(),
+                    control_plane_cluster_name: "control_plane_cluster".to_string(),
+                },
+                http_filters: HttpFiltersConfig {
+                    stat_prefix: "ingress_http".to_string(),
+                    router_filter_name: "envoy.filters.http.router".to_string(),
+                    hcm_filter_name: "envoy.filters.network.http_connection_manager".to_string(),
+                },
+            },
+        }
     }
 }

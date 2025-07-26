@@ -57,6 +57,12 @@ clean: ## Clean build artifacts
 audit: ## Run security audit
 	cargo audit
 
+generate-certs: ## Generate TLS certificates for local development
+	@echo "🔐 Generating TLS certificates..."
+	@mkdir -p certs
+	@cargo run --bin cert-generator
+	@echo "✅ TLS certificates ready!"
+
 # Docker
 docker-build: ## Build Docker image
 	docker build -t envoy-control-plane .
@@ -70,6 +76,9 @@ run-dev: ## Run control plane in development mode
 
 run-envoy: ## Run Envoy with bootstrap config
 	envoy -c envoy-bootstrap.yaml
+
+run-envoy-tls: ## Run Envoy with TLS-enabled bootstrap config
+	envoy -c envoy-bootstrap-tls.yaml
 
 # Testing helpers
 test-cluster: ## Create a test cluster
@@ -89,39 +98,119 @@ health-check: ## Check control plane health
 	curl http://localhost:8080/health
 
 # Cleanup
-clean-all: clean ## Clean everything including Docker images
+clean-all: clean clean-certs ## Clean everything including Docker images and certificates
 	docker rmi envoy-control-plane 2>/dev/null || true
 
 # E2E Testing
+check-tls-config: ## Check if TLS is enabled in config.yaml (for local development)
+	@if grep -A 4 "tls:" config.yaml | grep -q "enabled: true"; then \
+		echo "✅ TLS is ENABLED in config.yaml"; \
+		echo "TLS_ENABLED=true" > .env.test; \
+	else \
+		echo "🔓 TLS is DISABLED in config.yaml"; \
+		echo "TLS_ENABLED=false" > .env.test; \
+	fi
+
+check-e2e-tls-config: ## Check if TLS is enabled in config.e2e.yaml (for e2e testing)
+	@if grep -A 4 "tls:" config.e2e.yaml | grep -q "enabled: true"; then \
+		echo "✅ TLS is ENABLED in config.e2e.yaml"; \
+		echo "TLS_ENABLED=true" > .env.test; \
+	else \
+		echo "🔓 TLS is DISABLED in config.e2e.yaml"; \
+		echo "TLS_ENABLED=false" > .env.test; \
+	fi
+
+e2e-enable-tls: ## Enable TLS in config.e2e.yaml for testing
+	@echo "🔒 Enabling TLS in config.e2e.yaml..."
+	@sed -i '' 's/enabled: false/enabled: true/' config.e2e.yaml
+	@sed -i '' 's/enabled:false/enabled: true/' config.e2e.yaml
+	@echo "✅ TLS enabled in e2e config"
+
+e2e-disable-tls: ## Disable TLS in config.e2e.yaml for testing
+	@echo "🔓 Disabling TLS in config.e2e.yaml..."
+	@sed -i '' 's/enabled: true/enabled: false/' config.e2e.yaml
+	@sed -i '' 's/enabled:true/enabled: false/' config.e2e.yaml
+	@echo "✅ TLS disabled in e2e config"
+
+check-certs: ## Verify TLS certificates exist
+	@if [ ! -d "certs" ]; then \
+		echo "❌ Certificate directory not found. Run 'make generate-certs' first."; \
+		exit 1; \
+	fi
+	@if [ ! -f "certs/server.crt" ] || [ ! -f "certs/server.key" ]; then \
+		echo "❌ Certificate files missing. Run 'make generate-certs' first."; \
+		exit 1; \
+	fi
+	@echo "✅ TLS certificates found and ready!"
+
+e2e-generate-certs: ## Generate TLS certificates for E2E testing (only if needed)
+	@echo "🔐 Generating TLS certificates for E2E testing..."
+	@mkdir -p certs
+	@cargo run --bin cert-generator
+	@echo "✅ TLS certificates ready for E2E tests"
+
 e2e-generate-bootstrap: ## Generate Envoy bootstrap configuration from our config
 	@echo "🔧 Generating Envoy bootstrap configuration..."
 	@mkdir -p tests/e2e
-	@curl -s http://localhost:8080/generate-bootstrap | jq -r '.data' > tests/e2e/envoy-bootstrap-generated.yaml
-	@echo "✅ Bootstrap generated at tests/e2e/envoy-bootstrap-generated.yaml"
+	@. .env.test && if [ "$$TLS_ENABLED" = "true" ]; then \
+		echo "📋 Generating TLS-enabled bootstrap..."; \
+		curl -s http://localhost:8080/generate-bootstrap | jq -r '.data' > tests/e2e/envoy-bootstrap-tls.yaml; \
+		echo "✅ TLS bootstrap generated at tests/e2e/envoy-bootstrap-tls.yaml"; \
+	else \
+		echo "📋 Generating plain HTTP bootstrap..."; \
+		curl -s http://localhost:8080/generate-bootstrap | jq -r '.data' > tests/e2e/envoy-bootstrap-plain.yaml; \
+		echo "✅ Plain bootstrap generated at tests/e2e/envoy-bootstrap-plain.yaml"; \
+	fi
 
 e2e-up: ## Start E2E test environment with generated bootstrap
 	@echo "🚀 Starting E2E environment with generated bootstrap..."
-	@echo "📋 Step 1: Starting control plane and test backend..."
-	@docker-compose -f docker-compose.test.yml up --build -d control-plane test-backend
+	@echo "🔍 Step 1: Checking E2E TLS configuration..."
+	@make check-e2e-tls-config
+	@. .env.test && if [ "$$TLS_ENABLED" = "true" ]; then \
+		echo "🔐 Step 2: Generating TLS certificates..."; \
+		make e2e-generate-certs; \
+		echo "🔍 Step 2b: Verifying certificates..."; \
+		make check-certs; \
+		echo "📋 Step 3: Starting TLS-enabled control plane and test backend..."; \
+		docker-compose -f docker-compose.test.tls.yml up --build -d control-plane test-backend; \
+	else \
+		echo "📋 Step 2: Starting plain HTTP control plane and test backend..."; \
+		docker-compose -f docker-compose.test.plain.yml up --build -d control-plane test-backend; \
+	fi
 	@echo "⏳ Waiting for control plane to be ready..."
 	@sleep 10
-	@echo "🔧 Step 2: Generating Envoy bootstrap from control plane config..."
+	@echo "🔧 Step 4: Generating Envoy bootstrap from control plane config..."
 	@make e2e-generate-bootstrap
-	@echo "🚀 Step 3: Starting Envoy with generated bootstrap..."
-	@docker-compose -f docker-compose.test.yml up -d envoy
+	@. .env.test && if [ "$$TLS_ENABLED" = "true" ]; then \
+		echo "🚀 Step 5: Starting Envoy with TLS bootstrap..."; \
+		docker-compose -f docker-compose.test.tls.yml up -d envoy; \
+	else \
+		echo "🚀 Step 5: Starting Envoy with plain bootstrap..."; \
+		docker-compose -f docker-compose.test.plain.yml up -d envoy; \
+	fi
 	@echo "✅ E2E environment ready!"
 
 e2e-down: ## Stop E2E test environment and clean up generated files
 	@echo "🧹 Cleaning up E2E environment..."
-	docker-compose -f docker-compose.test.yml down --volumes --remove-orphans
-	@echo "🗑️  Removing generated bootstrap file..."
-	@rm -f tests/e2e/envoy-bootstrap-generated.yaml
+	@echo "🛑 Stopping TLS environment (if running)..."
+	@docker-compose -f docker-compose.test.tls.yml down --volumes --remove-orphans 2>/dev/null || true
+	@echo "🛑 Stopping plain environment (if running)..."
+	@docker-compose -f docker-compose.test.plain.yml down --volumes --remove-orphans 2>/dev/null || true
+	@echo "🗑️  Removing generated bootstrap files..."
+	@rm -f tests/e2e/envoy-bootstrap-tls.yaml
+	@rm -f tests/e2e/envoy-bootstrap-plain.yaml
+	@rm -f .env.test
 	@echo "✅ E2E environment cleaned up!"
+
+clean-certs: ## Remove generated TLS certificates
+	@echo "🗑️  Removing TLS certificates..."
+	@rm -rf certs/
+	@echo "✅ TLS certificates cleaned up!"
 
 e2e-test: ## Run E2E tests (assumes services are running)
 	cargo test --test e2e_integration_tests -- --ignored --nocapture
 
-e2e-full: ## Run complete E2E test suite  
+e2e-full: ## Run complete E2E test suite (uses current TLS setting in config.e2e.yaml)
 	@echo "🚀 Starting complete E2E test suite..."
 	@make e2e-up
 	@echo "⏳ Waiting for Envoy to be ready..."
@@ -132,8 +221,42 @@ e2e-full: ## Run complete E2E test suite
 	@make e2e-down
 	@echo "✅ E2E test suite completed!"
 
+e2e-full-tls: e2e-test-tls ## Alias for e2e-test-tls (consistency with e2e-full naming)
+
+e2e-full-plain: e2e-test-plain ## Alias for e2e-test-plain (consistency with e2e-full naming)
+
+e2e-test-tls: ## Run E2E tests with TLS enabled
+	@echo "🔒 Testing E2E with TLS enabled..."
+	@make e2e-enable-tls
+	@make e2e-full
+	@echo "✅ TLS E2E test completed!"
+
+e2e-test-plain: ## Run E2E tests with TLS disabled
+	@echo "🔓 Testing E2E with TLS disabled..."
+	@make e2e-disable-tls
+	@make e2e-full
+	@echo "✅ Plain HTTP E2E test completed!"
+
+e2e-test-both: ## Run E2E tests for both TLS and plain HTTP scenarios
+	@echo "🧪 Running comprehensive E2E tests (both TLS and plain HTTP)..."
+	@echo "📋 Test 1: TLS enabled scenario"
+	@make e2e-test-tls
+	@echo "📋 Test 2: Plain HTTP scenario"
+	@make e2e-test-plain
+	@echo "🎉 All E2E tests completed successfully!"
+
 e2e-logs: ## Show E2E service logs
-	docker-compose -f docker-compose.test.yml logs
+	@if [ -f .env.test ]; then \
+		. .env.test && if [ "$$TLS_ENABLED" = "true" ]; then \
+			echo "📋 Showing TLS environment logs..."; \
+			docker-compose -f docker-compose.test.tls.yml logs; \
+		else \
+			echo "📋 Showing plain environment logs..."; \
+			docker-compose -f docker-compose.test.plain.yml logs; \
+		fi; \
+	else \
+		echo "❌ No environment detected. Run 'make check-tls-config' first."; \
+	fi
 
 # CI/CD simulation
 ci-check: format-check lint test audit ## Run all CI checks locally

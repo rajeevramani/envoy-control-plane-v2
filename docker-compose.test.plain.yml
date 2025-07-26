@@ -1,0 +1,54 @@
+# E2E Testing Environment - Plain HTTP (TLS Disabled)
+# This compose file is used when TLS is disabled in config.yaml
+services:
+  # Our control plane service with TLS disabled
+  control-plane:
+    build: .
+    ports:
+      - "8080:8080"   # REST API (plain HTTP)
+      - "18000:18000" # xDS gRPC (plain HTTP)
+    volumes:
+      - ./config.e2e.yaml:/app/config.yaml:ro  # Mount e2e configuration with Docker service names
+    environment:
+      - RUST_LOG=info
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s  # Faster startup without TLS cert loading
+    networks:
+      - test-network
+
+  # Envoy proxy that will connect to our control plane via plain HTTP
+  envoy:
+    image: envoyproxy/envoy:v1.24-latest
+    ports:
+      - "10000:10000"  # Envoy proxy port (for client requests)
+      - "9901:9901"    # Envoy admin interface
+    volumes:
+      - ./tests/e2e/envoy-bootstrap-plain.yaml:/etc/envoy/envoy.yaml:ro
+    depends_on:
+      control-plane:
+        condition: service_healthy
+    networks:
+      - test-network
+    user: "1001:1001"  # Run as non-root user
+    command: ["/usr/local/bin/envoy", "-c", "/etc/envoy/envoy.yaml", "--log-level", "info", "--base-id", "1"]
+
+  # Simple HTTP backend for testing routing
+  test-backend:
+    image: kennethreitz/httpbin
+    ports:
+      - "3000:80"  # Expose to host for direct testing
+    networks:
+      - test-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/status/200"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+networks:
+  test-network:
+    driver: bridge

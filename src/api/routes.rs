@@ -2,6 +2,7 @@ use axum::{
     routing::{delete, get, post},
     Router,
 };
+use tower_http::cors::{CorsLayer, Any};
 
 use super::handlers;
 use crate::storage::ConfigStore;
@@ -35,6 +36,13 @@ pub fn create_router(store: ConfigStore, xds_server: SimpleXdsServer) -> Router 
         )
         // Health check
         .route("/health", get(health_check))
+        // Add CORS middleware to allow frontend access
+        .layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods(Any)
+                .allow_headers(Any)
+        )
         // Share the app state across all handlers
         .with_state(app_state)
 }

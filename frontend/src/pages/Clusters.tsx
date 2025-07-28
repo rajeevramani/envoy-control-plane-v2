@@ -32,6 +32,15 @@ export function Clusters() {
     },
   })
 
+  const updateMutation = useMutation({
+    mutationFn: ({ name, cluster }: { name: string; cluster: Omit<Cluster, 'name'> }) => 
+      apiClient.updateCluster(name, cluster),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['clusters'] })
+      setEditingCluster(null)
+    },
+  })
+
   const deleteMutation = useMutation({
     mutationFn: (name: string) => apiClient.deleteCluster(name),
     onSuccess: () => {
@@ -110,16 +119,24 @@ export function Clusters() {
                           </p>
                         </div>
                       </div>
-                      <div className="mt-2">
-                        <div className="text-sm text-gray-500">
-                          <strong>Endpoints:</strong>
-                          <ul className="mt-1 list-disc list-inside ml-4">
-                            {cluster.endpoints.map((endpoint, idx) => (
-                              <li key={idx}>
+                      <div className="mt-3">
+                        <div className="text-sm text-gray-600">
+                          <strong>Endpoints ({cluster.endpoints.length}):</strong>
+                        </div>
+                        <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {cluster.endpoints.map((endpoint, idx) => (
+                            <div 
+                              key={idx}
+                              className="flex items-center justify-between bg-gray-50 px-3 py-2 rounded-md"
+                            >
+                              <span className="text-sm font-medium text-gray-800">
                                 {endpoint.host}:{endpoint.port}
-                              </li>
-                            ))}
-                          </ul>
+                              </span>
+                              <span className="text-xs text-gray-500">
+                                #{idx + 1}
+                              </span>
+                            </div>
+                          ))}
                         </div>
                       </div>
                     </div>
@@ -150,14 +167,26 @@ export function Clusters() {
         <ClusterForm
           cluster={editingCluster}
           onSubmit={(cluster) => {
-            createMutation.mutate(cluster)
+            if (editingCluster) {
+              // Update existing cluster
+              updateMutation.mutate({ 
+                name: editingCluster.name, 
+                cluster: {
+                  endpoints: cluster.endpoints,
+                  lb_policy: cluster.lb_policy
+                }
+              })
+            } else {
+              // Create new cluster
+              createMutation.mutate(cluster)
+            }
             setEditingCluster(null)
           }}
           onClose={() => {
             setIsCreateOpen(false)
             setEditingCluster(null)
           }}
-          isLoading={createMutation.isPending}
+          isLoading={createMutation.isPending || updateMutation.isPending}
         />
       )}
     </div>
@@ -171,9 +200,41 @@ interface ClusterFormProps {
   isLoading: boolean
 }
 
+// Map between frontend display values and backend API values
+const mapToApiPolicy = (frontendPolicy: string): string => {
+  const mapping: Record<string, string> = {
+    'ROUND_ROBIN': 'ROUND_ROBIN',
+    'LEAST_REQUEST': 'LEAST_REQUEST', 
+    'RANDOM': 'RANDOM',
+    'RING_HASH': 'RING_HASH',
+    // Handle backend enum serialization format
+    'RoundRobin': 'ROUND_ROBIN',
+    'LeastRequest': 'LEAST_REQUEST',
+    'Random': 'RANDOM', 
+    'RingHash': 'RING_HASH'
+  }
+  return mapping[frontendPolicy] || frontendPolicy
+}
+
+const mapFromApiPolicy = (backendPolicy?: string): string => {
+  if (!backendPolicy) return 'ROUND_ROBIN'
+  const mapping: Record<string, string> = {
+    'ROUND_ROBIN': 'ROUND_ROBIN',
+    'LEAST_REQUEST': 'LEAST_REQUEST',
+    'RANDOM': 'RANDOM', 
+    'RING_HASH': 'RING_HASH',
+    // Handle backend enum serialization format
+    'RoundRobin': 'ROUND_ROBIN',
+    'LeastRequest': 'LEAST_REQUEST',
+    'Random': 'RANDOM',
+    'RingHash': 'RING_HASH'
+  }
+  return mapping[backendPolicy] || 'ROUND_ROBIN'
+}
+
 function ClusterForm({ cluster, onSubmit, onClose, isLoading }: ClusterFormProps) {
   const [name, setName] = useState(cluster?.name || '')
-  const [lbPolicy, setLbPolicy] = useState(cluster?.lb_policy || 'ROUND_ROBIN')
+  const [lbPolicy, setLbPolicy] = useState(mapFromApiPolicy(cluster?.lb_policy))
   const [endpoints, setEndpoints] = useState<Endpoint[]>(
     cluster?.endpoints || [{ host: '', port: 80 }]
   )
@@ -199,11 +260,20 @@ function ClusterForm({ cluster, onSubmit, onClose, isLoading }: ClusterFormProps
     const validEndpoints = endpoints.filter(ep => ep.host.trim() && ep.port > 0)
     if (validEndpoints.length === 0) return
 
-    onSubmit({
+    const mappedLbPolicy = mapToApiPolicy(lbPolicy)
+    const clusterData = {
       name: name.trim(),
       endpoints: validEndpoints,
-      lb_policy: lbPolicy === 'ROUND_ROBIN' ? undefined : lbPolicy,
-    })
+      lb_policy: mappedLbPolicy === 'ROUND_ROBIN' ? undefined : mappedLbPolicy,
+    }
+    
+    console.log('Submitting cluster data:', clusterData)
+    console.log('Valid endpoints count:', validEndpoints.length)
+    console.log('Frontend LB Policy:', lbPolicy)
+    console.log('Mapped API LB Policy:', mappedLbPolicy)
+    console.log('Original cluster lb_policy:', cluster?.lb_policy)
+    
+    onSubmit(clusterData)
   }
 
   return (
@@ -261,36 +331,49 @@ function ClusterForm({ cluster, onSubmit, onClose, isLoading }: ClusterFormProps
                 </button>
               </div>
               
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {endpoints.map((endpoint, index) => (
-                  <div key={index} className="flex items-center space-x-2">
-                    <input
-                      type="text"
-                      value={endpoint.host}
-                      onChange={(e) => updateEndpoint(index, 'host', e.target.value)}
-                      className="flex-1 border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="httpbin.org"
-                      required
-                    />
-                    <input
-                      type="number"
-                      value={endpoint.port}
-                      onChange={(e) => updateEndpoint(index, 'port', parseInt(e.target.value) || 0)}
-                      className="w-24 border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="80"
-                      min="1"
-                      max="65535"
-                      required
-                    />
-                    {endpoints.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => removeEndpoint(index)}
-                        className="p-2 text-red-600 hover:text-red-800"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    )}
+                  <div key={index} className="border border-gray-200 rounded-lg p-3 bg-gray-50">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium text-gray-700">
+                        Endpoint #{index + 1}
+                      </span>
+                      {endpoints.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeEndpoint(index)}
+                          className="p-1 text-red-600 hover:text-red-800 hover:bg-red-50 rounded"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <div className="flex-1">
+                        <label className="block text-xs text-gray-500 mb-1">Host</label>
+                        <input
+                          type="text"
+                          value={endpoint.host}
+                          onChange={(e) => updateEndpoint(index, 'host', e.target.value)}
+                          className="w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          placeholder="httpbin.org"
+                          required
+                        />
+                      </div>
+                      <div className="w-24">
+                        <label className="block text-xs text-gray-500 mb-1">Port</label>
+                        <input
+                          type="number"
+                          value={endpoint.port}
+                          onChange={(e) => updateEndpoint(index, 'port', parseInt(e.target.value) || 0)}
+                          className="w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          placeholder="80"
+                          min="1"
+                          max="65535"
+                          required
+                        />
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>

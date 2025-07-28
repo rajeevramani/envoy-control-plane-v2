@@ -1,5 +1,5 @@
 use axum::{
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
     Router,
 };
 use tower_http::cors::{CorsLayer, Any};
@@ -27,6 +27,7 @@ pub fn create_router(store: ConfigStore, xds_server: SimpleXdsServer) -> Router 
         .route("/clusters", post(handlers::create_cluster))
         .route("/clusters", get(handlers::list_clusters))
         .route("/clusters/:name", get(handlers::get_cluster))
+        .route("/clusters/:name", put(handlers::update_cluster))
         .route("/clusters/:name", delete(handlers::delete_cluster))
         // Config generation
         .route("/generate-config", post(handlers::generate_envoy_config))

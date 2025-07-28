@@ -67,6 +67,13 @@ class ApiClient {
     })
   }
 
+  async updateCluster(name: string, cluster: Omit<Cluster, 'name'>): Promise<string> {
+    return this.request<string>(`/clusters/${name}`, {
+      method: 'PUT',
+      body: JSON.stringify(cluster),
+    })
+  }
+
   async deleteCluster(name: string): Promise<void> {
     await this.request<void>(`/clusters/${name}`, {
       method: 'DELETE',

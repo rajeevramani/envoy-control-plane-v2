@@ -1,5 +1,6 @@
 # Rust build artifacts
 /target
+backend/target/
 Cargo.lock
 
 # Generated files

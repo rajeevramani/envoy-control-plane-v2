@@ -3,12 +3,14 @@
 services:
   # Our control plane service with TLS disabled
   control-plane:
-    build: .
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
     ports:
       - "8080:8080"   # REST API (plain HTTP)
       - "18000:18000" # xDS gRPC (plain HTTP)
     volumes:
-      - ./config.e2e.yaml:/app/config.yaml:ro  # Mount e2e configuration with Docker service names
+      - ../backend/config.e2e.yaml:/app/config.yaml:ro  # Mount e2e configuration with Docker service names
     environment:
       - RUST_LOG=info
     healthcheck:
@@ -27,7 +29,7 @@ services:
       - "10000:10000"  # Envoy proxy port (for client requests)
       - "9901:9901"    # Envoy admin interface
     volumes:
-      - ./tests/e2e/envoy-bootstrap-plain.yaml:/etc/envoy/envoy.yaml:ro
+      - ../backend/tests/e2e/envoy-bootstrap-plain.yaml:/etc/envoy/envoy.yaml:ro
     depends_on:
       control-plane:
         condition: service_healthy

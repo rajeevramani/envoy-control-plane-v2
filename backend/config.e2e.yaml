@@ -10,7 +10,7 @@ control_plane:
   tls:
     cert_path: "./certs/server.crt"    # TLS certificate file path
     key_path: "./certs/server.key"     # TLS private key file path
-    enabled: true                      # Enable TLS for xDS server
+    enabled: false                      # Enable TLS for xDS server
   logging:
     level: "info"          # Control plane log level
   load_balancing:

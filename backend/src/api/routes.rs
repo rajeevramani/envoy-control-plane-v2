@@ -1,7 +1,8 @@
 use axum::{
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
     Router,
 };
+use tower_http::cors::{CorsLayer, Any};
 
 use super::handlers;
 use crate::storage::ConfigStore;
@@ -26,6 +27,7 @@ pub fn create_router(store: ConfigStore, xds_server: SimpleXdsServer) -> Router 
         .route("/clusters", post(handlers::create_cluster))
         .route("/clusters", get(handlers::list_clusters))
         .route("/clusters/:name", get(handlers::get_cluster))
+        .route("/clusters/:name", put(handlers::update_cluster))
         .route("/clusters/:name", delete(handlers::delete_cluster))
         // Config generation
         .route("/generate-config", post(handlers::generate_envoy_config))
@@ -35,6 +37,13 @@ pub fn create_router(store: ConfigStore, xds_server: SimpleXdsServer) -> Router 
         )
         // Health check
         .route("/health", get(health_check))
+        // Add CORS middleware to allow frontend access
+        .layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods(Any)
+                .allow_headers(Any)
+        )
         // Share the app state across all handlers
         .with_state(app_state)
 }

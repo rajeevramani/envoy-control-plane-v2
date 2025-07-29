@@ -39,25 +39,25 @@ A **production-ready Envoy control plane** implementation in Rust that provides 
 ## 🏗️ Architecture Overview
 
 ```
-┌─────────────┐    HTTP     ┌─────────────┐    Store    ┌─────────────┐
-│   Client    │────────────▶│  REST API   │────────────▶│   Storage   │
-│  (curl/UI)  │             │   (axum)    │             │ (DashMap)   │
-└─────────────┘             └─────────────┘             └─────────────┘
-                                    │                           │
-                                    ▼                           │
-                            increment_version()                 │
-                                    │                           │
-                                    ▼                           │
-┌─────────────┐   gRPC/xDS  ┌─────────────┐    Read     ┌─────┴─────────┐
-│    Envoy    │◀────────────│ xDS Server  │◀────────────│   Storage     │
-│   Proxy     │             │  (tonic)    │             │  (DashMap)    │
-└─────────────┘             └─────────────┘             └───────────────┘
-                                    ▲
-                                    │
-                            ┌───────────────┐
-                            │  config.yaml  │──── Dynamic Bootstrap
-                            │  Validation   │──── Generation
-                            └───────────────┘
+┌─────────────┐              ┌─────────────┐    HTTP     ┌─────────────┐    Store    ┌─────────────┐
+│  React UI   │──HTTP(3000)─▶│   Client    │────────────▶│  REST API   │────────────▶│   Storage   │
+│ (frontend)  │              │  (curl/UI)  │             │   (axum)    │             │ (DashMap)   │
+└─────────────┘              └─────────────┘             └─────────────┘             └─────────────┘
+                                                                 │                           │
+                                                                 ▼                           │
+                                                         increment_version()                 │
+                                                                 │                           │
+                                                                 ▼                           │
+                             ┌─────────────┐   gRPC/xDS  ┌─────────────┐    Read     ┌─────┴─────────┐
+                             │    Envoy    │◀────────────│ xDS Server  │◀────────────│   Storage     │
+                             │   Proxy     │             │  (tonic)    │             │  (DashMap)    │
+                             └─────────────┘             └─────────────┘             └───────────────┘
+                                                                 ▲
+                                                                 │
+                                                         ┌───────────────┐
+                                                         │  config.yaml  │──── Dynamic Bootstrap
+                                                         │  Validation   │──── Generation
+                                                         └───────────────┘
 ```
 
 ## 🚀 Quick Start
@@ -65,6 +65,7 @@ A **production-ready Envoy control plane** implementation in Rust that provides 
 ### Prerequisites
 
 - **Rust** 1.70+ ([install](https://rustup.rs/))
+- **Node.js** 18+ ([install](https://nodejs.org/))
 - **Envoy** 1.24+ ([download](https://www.envoyproxy.io/docs/envoy/latest/start/install))
 
 ### 1. Clone and Build
@@ -72,16 +73,20 @@ A **production-ready Envoy control plane** implementation in Rust that provides 
 ```bash
 git clone <repository-url>
 cd envoy-control-plane-v2
-cargo build --release
+make build
 ```
 
-### 2. Start the Control Plane
+### 2. Start the Development Environment
 
 ```bash
-cargo run
+# Terminal 1: Start the backend control plane
+make backend-dev
+
+# Terminal 2: Start the frontend web interface
+make frontend-dev
 ```
 
-Expected output:
+Expected output (backend):
 ```
 Envoy Control Plane starting...
 REST API running on http://0.0.0.0:8080
@@ -90,7 +95,22 @@ xDS gRPC server running on http://0.0.0.0:18000
   - AggregatedDiscoveryService (ADS)
 ```
 
-### 3. Start Envoy with Generated Configuration
+Expected output (frontend):
+```
+Local:   http://localhost:3000/
+Network: http://192.168.1.100:3000/
+```
+
+### 3. Access the Web Interface
+
+Open your browser to [http://localhost:3000](http://localhost:3000) to access the web-based management interface with:
+
+- **Dashboard** - Real-time cluster and route counts
+- **Clusters** - Add, edit, and delete cluster configurations
+- **Routes** - Manage routing rules with path matching
+- **Config** - Configuration management tools
+
+### 4. Start Envoy with Generated Configuration
 
 The control plane automatically generates Envoy bootstrap configuration:
 
@@ -99,7 +119,7 @@ The control plane automatically generates Envoy bootstrap configuration:
 make e2e-generate-bootstrap
 
 # Start Envoy with generated config
-envoy -c tests/e2e/envoy-bootstrap-generated.yaml
+envoy -c backend/tests/e2e/envoy-bootstrap-generated.yaml
 ```
 
 Expected output:
@@ -112,7 +132,7 @@ Expected output:
 
 ## ⚙️ Configuration
 
-All configuration is centralized in `config.yaml`. See [CONFIGURATION.md](CONFIGURATION.md) for complete details.
+All configuration is centralized in `backend/config.yaml`. See [CONFIGURATION.md](CONFIGURATION.md) for complete details.
 
 ### Basic Configuration
 
@@ -257,7 +277,7 @@ curl http://localhost:8080/health
 ### Run All Tests
 ```bash
 # Run unit and integration tests
-cargo test
+make backend-test
 
 # Full test suite (includes E2E)
 make test-all
@@ -270,15 +290,12 @@ make e2e-full
 
 #### Unit Tests
 ```bash
-cargo test --lib
+make backend-test-unit
 ```
 
 #### Integration Tests  
 ```bash
-cargo test --test protobuf_conversion_tests
-cargo test --test rest_api_tests
-cargo test --test versioning_tests
-cargo test --test xds_integration_tests
+make backend-test-integration
 ```
 
 #### End-to-End Tests
@@ -298,11 +315,11 @@ make e2e-full
 
 ```bash
 # Test validation with various invalid configs
-cargo test validation
+make backend-test
 
 # Test real validation scenarios
-echo 'control_plane: { server: { rest_port: 0 } }' > bad-config.yaml
-cargo run  # Will show: Error: Port 0 is invalid: rest_port cannot be 0 (reserved)
+echo 'control_plane: { server: { rest_port: 0 } }' > backend/bad-config.yaml
+make backend-dev  # Will show: Error: Port 0 is invalid: rest_port cannot be 0 (reserved)
 ```
 
 ## 🔄 Development Workflow
@@ -310,21 +327,36 @@ cargo run  # Will show: Error: Port 0 is invalid: rest_port cannot be 0 (reserve
 ### Makefile Commands
 
 ```bash
-# Development
-make build              # Build the application
-make run-dev           # Run with debug logging
-make format            # Format code
-make lint              # Run clippy
+# Full Stack Development
+make build             # Build both backend and frontend
+make dev               # Instructions for running both in development
+make test              # Run all tests (backend + frontend)
+make clean             # Clean all build artifacts
+make format            # Format both backend and frontend code
+make lint              # Run linters for both backend and frontend
+
+# Backend Only
+make backend-build     # Build the backend application
+make backend-dev       # Run backend with debug logging
+make backend-test      # Run backend unit and integration tests
+make backend-format    # Format backend code
+make backend-lint      # Run clippy on backend
+
+# Frontend Only
+make frontend-build    # Build the frontend application
+make frontend-dev      # Start frontend development server
+make frontend-test     # Run frontend tests
+make frontend-format   # Format frontend code
+make frontend-lint     # Run frontend linter
 
 # Testing
-make test              # Unit and integration tests
 make test-all          # All tests including E2E
 make e2e-full          # Complete E2E test suite
 make e2e-up            # Start E2E environment
 make e2e-down          # Stop and cleanup E2E environment
 
 # Quality
-make check             # Format + lint + test
+make check             # Format + lint + test (both backend and frontend)
 make audit             # Security audit
 ```
 
@@ -342,37 +374,56 @@ docker-compose up
 ## 🏛️ Project Structure
 
 ```
-src/
-├── main.rs              # Application bootstrap
-├── config/              # Configuration management
-│   ├── mod.rs           # YAML config loading
-│   └── validation.rs    # Comprehensive validation
-├── storage/             # Thread-safe data storage
-│   ├── mod.rs           # Public API
-│   ├── models.rs        # Data structures
-│   └── store.rs         # Concurrent storage
-├── api/                 # REST API layer  
-│   ├── mod.rs           # Router and state
-│   ├── handlers.rs      # HTTP handlers
-│   └── routes.rs        # Route definitions
-├── xds/                 # xDS protocol implementation
-│   ├── mod.rs           # xDS exports
-│   ├── simple_server.rs # gRPC server
-│   └── conversion.rs    # Protobuf conversion
-└── envoy/              # Envoy config generation
-    └── config_generator.rs # Bootstrap generation
+backend/                 # Rust control plane
+├── src/
+│   ├── main.rs              # Application bootstrap
+│   ├── config/              # Configuration management
+│   │   ├── mod.rs           # YAML config loading
+│   │   └── validation.rs    # Comprehensive validation
+│   ├── storage/             # Thread-safe data storage
+│   │   ├── mod.rs           # Public API
+│   │   ├── models.rs        # Data structures
+│   │   └── store.rs         # Concurrent storage
+│   ├── api/                 # REST API layer  
+│   │   ├── mod.rs           # Router and state
+│   │   ├── handlers.rs      # HTTP handlers
+│   │   └── routes.rs        # Route definitions
+│   ├── xds/                 # xDS protocol implementation
+│   │   ├── mod.rs           # xDS exports
+│   │   ├── simple_server.rs # gRPC server
+│   │   └── conversion.rs    # Protobuf conversion
+│   └── envoy/              # Envoy config generation
+│       └── config_generator.rs # Bootstrap generation
+├── tests/                   # Test suite
+│   ├── protobuf_conversion_tests.rs
+│   ├── rest_api_tests.rs
+│   ├── versioning_tests.rs
+│   ├── xds_integration_tests.rs
+│   └── e2e_integration_tests.rs
+├── config.yaml             # Main configuration
+├── Cargo.toml              # Rust dependencies
+└── Dockerfile              # Backend container
 
-tests/                   # Test suite
-├── protobuf_conversion_tests.rs
-├── rest_api_tests.rs
-├── versioning_tests.rs
-├── xds_integration_tests.rs
-└── e2e_integration_tests.rs
+frontend/                # React web interface
+├── src/
+│   ├── App.tsx              # Main application component
+│   ├── pages/               # Page components
+│   │   ├── Dashboard.tsx    # Control plane dashboard
+│   │   ├── Clusters.tsx     # Cluster management
+│   │   ├── Routes.tsx       # Route management
+│   │   └── Config.tsx       # Configuration tools
+│   └── lib/
+│       └── api-client.ts    # Backend API client
+├── package.json            # Node.js dependencies
+└── vite.config.ts          # Build configuration
 
-config.yaml             # Main configuration
-CONFIGURATION.md        # Complete config guide
-Makefile               # Development commands
-docker-compose.test.yml # E2E testing environment
+docker/                  # Docker compose files
+├── docker-compose.test.tls.yml    # E2E testing (TLS)
+└── docker-compose.test.plain.yml  # E2E testing (plain)
+
+Makefile                 # Development orchestration
+CONFIGURATION.md         # Complete config guide
+README.md               # This file
 ```
 
 ## 🔍 Monitoring and Debugging
@@ -410,7 +461,7 @@ control_plane:
 
 Or via environment:
 ```bash
-RUST_LOG=debug cargo run
+RUST_LOG=debug make backend-dev
 ```
 
 ## 🚨 Troubleshooting

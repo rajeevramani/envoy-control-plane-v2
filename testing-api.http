@@ -26,17 +26,44 @@ GET http://127.0.0.1:8080/clusters
 
 ### Update Cluster
 
-PUT http://127.0.0.1:8080/clusters/{{clusterId}}
+PUT http://127.0.0.1:8080/clusters/lifecycle-test-cluster
+Content-Type: application/json
+
+{
+  "endpoints": [
+    {
+      "host": "httpbin-2.org",
+      "port": 80
+    },{
+      "host": "httpbin-2.org",
+      "port": 80,
+      "tls_enabled": true
+    }
+  ]
+}
+
+### Update Cluster
+
+PUT http://127.0.0.1:8080/clusters/lifecycle-test-cluster
+Content-Type: application/json
+
+{
+  "lb_policy": "ROUND_ROBIN"
+}
+
+### Update Cluster
+
+PUT http://127.0.0.1:8080/clusters/lifecycle-test-cluster
 Content-Type: application/json
 
 {
   "name": "httpbin-service",
   "endpoints": [
     {
-      "host": "httpbin.org",
+      "host": "httpbin-1.org",
       "port": 80
     },{
-      "host": "httpbin.org",
+      "host": "httpbin-1.org",
       "port": 80,
       "tls_enabled": true
     }

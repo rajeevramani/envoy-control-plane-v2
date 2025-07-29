@@ -3,13 +3,15 @@
 services:
   # Our control plane service with TLS enabled
   control-plane:
-    build: .
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
     ports:
       - "8080:8080"   # REST API (always plain HTTP)
       - "18000:18000" # xDS gRPC (TLS enabled)
     volumes:
-      - ./certs:/app/certs:ro  # Mount TLS certificates - REQUIRED for TLS
-      - ./config.e2e.yaml:/app/config.yaml:ro  # Mount e2e configuration with Docker service names
+      - ../backend/certs:/app/certs:ro  # Mount TLS certificates - REQUIRED for TLS
+      - ../backend/config.e2e.yaml:/app/config.yaml:ro  # Mount e2e configuration with Docker service names
     environment:
       - RUST_LOG=info
       - TLS_CERT_PATH=/app/certs/server.crt  # Override config.yaml paths for Docker
@@ -30,7 +32,7 @@ services:
       - "10000:10000"  # Envoy proxy port (for client requests)
       - "9901:9901"    # Envoy admin interface
     volumes:
-      - ./tests/e2e/envoy-bootstrap-tls.yaml:/etc/envoy/envoy.yaml:ro
+      - ../backend/tests/e2e/envoy-bootstrap-tls.yaml:/etc/envoy/envoy.yaml:ro
     depends_on:
       control-plane:
         condition: service_healthy

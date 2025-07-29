@@ -25,6 +25,12 @@ pub struct CreateClusterRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateClusterRequest {
+    pub endpoints: Vec<CreateEndpointRequest>,
+    pub lb_policy: Option<String>, // Optional: will use config default if None
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct CreateEndpointRequest {
     pub host: String,
     pub port: u16,
@@ -200,6 +206,78 @@ pub async fn delete_cluster(
         }
         None => Err(StatusCode::NOT_FOUND),
     }
+}
+
+pub async fn update_cluster(
+    State(app_state): State<AppState>,
+    Path(name): Path<String>,
+    Json(payload): Json<UpdateClusterRequest>,
+) -> Result<Json<ApiResponse<String>>, StatusCode> {
+    // Check if cluster exists
+    if app_state.store.get_cluster(&name).is_none() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    // Load config to validate lb_policy
+    let config = match AppConfig::load() {
+        Ok(cfg) => cfg,
+        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+    };
+
+    // Convert endpoints
+    let endpoints: Vec<Endpoint> = payload
+        .endpoints
+        .into_iter()
+        .map(|e| Endpoint::new(e.host, e.port))
+        .collect();
+
+    // Handle load balancing policy
+    let cluster = match payload.lb_policy {
+        Some(policy_str) => {
+            // Validate policy against available_policies registry
+            if !config
+                .control_plane
+                .load_balancing
+                .available_policies
+                .contains(&policy_str)
+            {
+                return Ok(Json(ApiResponse {
+                    success: false,
+                    data: None,
+                    message: format!(
+                        "Invalid load balancing policy '{}'. Available policies: {:?}",
+                        policy_str, config.control_plane.load_balancing.available_policies
+                    ),
+                }));
+            }
+
+            // Convert string to enum and create cluster
+            let lb_policy = policy_str.parse().unwrap(); // Safe because FromStr never fails
+            Cluster::with_lb_policy(name.clone(), endpoints, lb_policy)
+        }
+        None => {
+            // No policy specified - use default from config
+            let default_policy = config
+                .control_plane
+                .load_balancing
+                .default_policy
+                .parse()
+                .unwrap(); // Safe because FromStr never fails
+            Cluster::with_lb_policy(name.clone(), endpoints, default_policy)
+        }
+    };
+
+    // Update the cluster (remove old, add new)
+    app_state.store.remove_cluster(&name);
+    let updated_name = app_state.store.add_cluster(cluster);
+
+    // Increment version to notify Envoy of the change
+    app_state.xds_server.increment_version();
+
+    Ok(Json(ApiResponse::success(
+        updated_name,
+        "Cluster updated successfully",
+    )))
 }
 
 #[derive(Debug, Serialize, Deserialize)]

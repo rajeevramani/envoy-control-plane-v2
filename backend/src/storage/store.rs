@@ -45,6 +45,15 @@ impl ConfigStore {
         self.routes.remove(id).map(|(_, route)| route)
     }
 
+    pub fn update_route(&self, id: &str, updated_route: Route) -> Option<Route> {
+        if self.routes.contains_key(id) {
+            self.routes.insert(id.to_string(), updated_route.clone());
+            Some(updated_route)
+        } else {
+            None
+        }
+    }
+
     // Cluster operations
     pub fn add_cluster(&self, cluster: Cluster) -> String {
         let name = cluster.name.clone();

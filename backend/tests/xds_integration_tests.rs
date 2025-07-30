@@ -53,6 +53,7 @@ async fn test_get_resources_by_type_routes() {
         path: "/api/v1/test".to_string(),
         cluster_name: "test-cluster".to_string(),
         prefix_rewrite: Some("/test".to_string()),
+        http_methods: None,
     };
 
     store.add_route(route);
@@ -147,6 +148,7 @@ async fn test_route_storage_and_retrieval() {
         path: "/api/v1/users".to_string(),
         cluster_name: "user-service".to_string(),
         prefix_rewrite: Some("/users".to_string()),
+        http_methods: None,
     };
 
     let route2 = Route {
@@ -154,6 +156,7 @@ async fn test_route_storage_and_retrieval() {
         path: "/api/v1/orders".to_string(),
         cluster_name: "order-service".to_string(),
         prefix_rewrite: None,
+        http_methods: None,
     };
 
     store.add_route(route1);
@@ -191,6 +194,7 @@ async fn test_resource_deletion() {
         path: "/test".to_string(),
         cluster_name: "test-cluster".to_string(),
         prefix_rewrite: None,
+        http_methods: None,
     };
 
     store.add_cluster(cluster.clone());

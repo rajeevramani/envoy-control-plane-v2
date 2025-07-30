@@ -49,6 +49,7 @@ async fn test_route_to_proto_conversion() {
         path: "/api/v1/users".to_string(),
         cluster_name: "user-service".to_string(),
         prefix_rewrite: Some("/users".to_string()),
+        http_methods: None,
     };
 
     let proto_routes = ProtoConverter::routes_to_proto(vec![route]).unwrap();
@@ -99,12 +100,14 @@ async fn test_multiple_routes_conversion() {
             path: "/api/v1/users".to_string(),
             cluster_name: "user-service".to_string(),
             prefix_rewrite: Some("/users".to_string()),
+            http_methods: None,
         },
         Route {
             id: "route2".to_string(),
             path: "/api/v1/orders".to_string(),
             cluster_name: "order-service".to_string(),
             prefix_rewrite: None,
+            http_methods: None,
         },
     ];
 
@@ -152,6 +155,7 @@ async fn test_route_without_prefix_rewrite() {
         path: "/health".to_string(),
         cluster_name: "health-service".to_string(),
         prefix_rewrite: None,
+        http_methods: None,
     };
 
     let proto_routes = ProtoConverter::routes_to_proto(vec![route]).unwrap();
@@ -175,6 +179,7 @@ async fn test_route_with_prefix_rewrite() {
         path: "/api/v1/health".to_string(),
         cluster_name: "health-service".to_string(),
         prefix_rewrite: Some("/health".to_string()),
+        http_methods: None,
     };
 
     let proto_routes = ProtoConverter::routes_to_proto(vec![route]).unwrap();

@@ -14,6 +14,7 @@ interface Route {
   path: string
   cluster_name: string
   prefix_rewrite?: string
+  http_methods?: string[]
 }
 
 interface ApiResponse<T> {
@@ -96,6 +97,13 @@ class ApiClient {
     })
   }
 
+  async updateRoute(id: string, route: Omit<Route, 'id'>): Promise<string> {
+    return this.request<string>(`/routes/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(route),
+    })
+  }
+
   async deleteRoute(id: string): Promise<void> {
     await this.request<void>(`/routes/${id}`, {
       method: 'DELETE',
@@ -115,6 +123,11 @@ class ApiClient {
 
   async generateBootstrap(): Promise<string> {
     return this.request<string>('/generate-bootstrap')
+  }
+
+  // HTTP Methods
+  async getSupportedHttpMethods(): Promise<string[]> {
+    return this.request<string[]>('/supported-http-methods')
   }
 }
 

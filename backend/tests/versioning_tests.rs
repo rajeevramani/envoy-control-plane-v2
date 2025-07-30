@@ -44,6 +44,7 @@ async fn test_version_increment_on_route_change() {
         path: "/api/v1/test".to_string(),
         cluster_name: "test-cluster".to_string(),
         prefix_rewrite: Some("/test".to_string()),
+        http_methods: None,
     };
 
     store.add_route(route.clone());
@@ -188,6 +189,7 @@ async fn test_mixed_resource_operations() {
         path: "/mixed".to_string(),
         cluster_name: "mixed-service".to_string(),
         prefix_rewrite: None,
+        http_methods: None,
     };
 
     store.add_route(route);

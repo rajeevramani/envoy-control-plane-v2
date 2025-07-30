@@ -15,6 +15,7 @@ pub struct CreateRouteRequest {
     pub path: String,
     pub cluster_name: String,
     pub prefix_rewrite: Option<String>,
+    pub http_methods: Option<Vec<String>>, // GET, POST, PUT, DELETE, etc.
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -28,6 +29,14 @@ pub struct CreateClusterRequest {
 pub struct UpdateClusterRequest {
     pub endpoints: Vec<CreateEndpointRequest>,
     pub lb_policy: Option<String>, // Optional: will use config default if None
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateRouteRequest {
+    pub path: String,
+    pub cluster_name: String,
+    pub prefix_rewrite: Option<String>,
+    pub http_methods: Option<Vec<String>>, // GET, POST, PUT, DELETE, etc.
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -67,13 +76,85 @@ pub async fn create_route(
     State(app_state): State<AppState>,
     Json(payload): Json<CreateRouteRequest>,
 ) -> Result<Json<ApiResponse<String>>, StatusCode> {
-    let route = Route::new(payload.path, payload.cluster_name, payload.prefix_rewrite);
+    // Load config to validate HTTP methods
+    let config = match AppConfig::load() {
+        Ok(cfg) => cfg,
+        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+    };
+
+    // Validate HTTP methods if provided
+    if let Some(ref methods) = payload.http_methods {
+        for method in methods {
+            if !is_valid_http_method(method, &config.control_plane.http_methods.supported_methods) {
+                return Ok(Json(ApiResponse {
+                    success: false,
+                    data: None,
+                    message: format!("Invalid HTTP method '{}'. Supported methods: {:?}", method, config.control_plane.http_methods.supported_methods),
+                }));
+            }
+        }
+    }
+
+    let route = Route::with_methods(
+        payload.path, 
+        payload.cluster_name, 
+        payload.prefix_rewrite,
+        payload.http_methods
+    );
     let id = app_state.store.add_route(route);
 
     // Increment version to notify Envoy of the change
     app_state.xds_server.increment_version();
 
     Ok(Json(ApiResponse::success(id, "Route created successfully")))
+}
+
+pub async fn update_route(
+    State(app_state): State<AppState>,
+    Path(id): Path<String>,
+    Json(payload): Json<UpdateRouteRequest>,
+) -> Result<Json<ApiResponse<String>>, StatusCode> {
+    // Check if route exists
+    if app_state.store.get_route(&id).is_none() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    // Load config to validate HTTP methods
+    let config = match AppConfig::load() {
+        Ok(cfg) => cfg,
+        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+    };
+
+    // Validate HTTP methods if provided
+    if let Some(ref methods) = payload.http_methods {
+        for method in methods {
+            if !is_valid_http_method(method, &config.control_plane.http_methods.supported_methods) {
+                return Ok(Json(ApiResponse {
+                    success: false,
+                    data: None,
+                    message: format!("Invalid HTTP method '{}'. Supported methods: {:?}", method, config.control_plane.http_methods.supported_methods),
+                }));
+            }
+        }
+    }
+
+    // Create updated route with the same ID
+    let updated_route = Route {
+        id: id.clone(),
+        path: payload.path,
+        cluster_name: payload.cluster_name,
+        prefix_rewrite: payload.prefix_rewrite,
+        http_methods: payload.http_methods,
+    };
+
+    match app_state.store.update_route(&id, updated_route) {
+        Some(_) => {
+            // Increment version to notify Envoy of the change
+            app_state.xds_server.increment_version();
+            Ok(Json(ApiResponse::success(id, "Route updated successfully")))
+        }
+        None => Err(StatusCode::NOT_FOUND),
+    }
 }
 
 pub async fn get_route(
@@ -286,6 +367,21 @@ pub struct GenerateConfigRequest {
     pub proxy_port: u16,
 }
 
+pub async fn get_supported_http_methods(
+    State(_app_state): State<AppState>,
+) -> Result<Json<ApiResponse<Vec<String>>>, StatusCode> {
+    // Load app config
+    let app_config = match AppConfig::load() {
+        Ok(config) => config,
+        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+    };
+
+    Ok(Json(ApiResponse::success(
+        app_config.control_plane.http_methods.supported_methods,
+        "Supported HTTP methods retrieved successfully",
+    )))
+}
+
 pub async fn generate_bootstrap_config(
     State(_app_state): State<AppState>,
 ) -> Result<Json<ApiResponse<String>>, StatusCode> {
@@ -341,4 +437,9 @@ pub async fn generate_envoy_config(
         }
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
     }
+}
+
+// Helper function to validate HTTP methods against config
+fn is_valid_http_method(method: &str, supported_methods: &[String]) -> bool {
+    supported_methods.iter().any(|m| m.eq_ignore_ascii_case(method))
 }

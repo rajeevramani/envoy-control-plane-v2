@@ -11,8 +11,9 @@ use envoy_types::pb::envoy::config::endpoint::v3::{
     ClusterLoadAssignment, Endpoint, LbEndpoint, LocalityLbEndpoints,
 };
 use envoy_types::pb::envoy::config::route::v3::{
-    Route, RouteAction, RouteConfiguration, RouteMatch, VirtualHost,
+    HeaderMatcher, Route, RouteAction, RouteConfiguration, RouteMatch, VirtualHost,
 };
+use envoy_types::pb::envoy::r#type::matcher::v3::RegexMatcher;
 
 // Include the generated protobuf code for ADS
 include!(concat!(env!("OUT_DIR"), "/envoy.service.discovery.v3.rs"));
@@ -59,9 +60,42 @@ impl ProtoConverter {
         let proto_routes: Vec<Route> = routes.into_iter().map(|route| {
             println!("  - Route: {} -> {}", route.path, route.cluster_name);
 
+            // Create header matchers for HTTP methods if specified
+            let headers = if let Some(ref methods) = route.http_methods {
+                if methods.len() == 1 {
+                    // Single method - use exact match
+                    vec![HeaderMatcher {
+                        name: ":method".to_string(),
+                        header_match_specifier: Some(
+                            envoy_types::pb::envoy::config::route::v3::header_matcher::HeaderMatchSpecifier::ExactMatch(methods[0].clone())
+                        ),
+                        ..Default::default()
+                    }]
+                } else {
+                    // Multiple methods - use regex match
+                    let regex_pattern = format!("^({})$", methods.join("|"));
+                    vec![HeaderMatcher {
+                        name: ":method".to_string(),
+                        header_match_specifier: Some(
+                            envoy_types::pb::envoy::config::route::v3::header_matcher::HeaderMatchSpecifier::SafeRegexMatch(
+                                RegexMatcher {
+                                    regex: regex_pattern,
+                                    ..Default::default()
+                                }
+                            )
+                        ),
+                        ..Default::default()
+                    }]
+                }
+            } else {
+                // No HTTP methods specified - match all methods
+                vec![]
+            };
+
             Route {
                 r#match: Some(RouteMatch {
                     path_specifier: Some(envoy_types::pb::envoy::config::route::v3::route_match::PathSpecifier::Prefix(route.path)),
+                    headers,
                     ..Default::default()
                 }),
                 action: Some(envoy_types::pb::envoy::config::route::v3::route::Action::Route(RouteAction {

@@ -1,5 +1,7 @@
 #![allow(clippy::uninlined_format_args)]
 
+use axum::http::header::WARNING;
+use envoy_control_plane::api::handlers::get_route;
 use serde_json::{json, Value};
 use std::time::Duration;
 use tokio::time::sleep;
@@ -560,5 +562,325 @@ async fn delete_cluster(name: &str) -> Result<(), String> {
             }
         }
         Err(e) => Err(format!("Delete cluster request failed: {}", e)),
+    }
+}
+
+#[tokio::test]
+#[ignore] // Run with: cargo test --ignored e2e_test_route_update_http_methods
+async fn e2e_test_route_update_http_methods() {
+    wait_for_services().await;
+
+    let cluster_name = "route-update-test-cluster";
+    let route_path = "/status/202";  // httpbin endpoint that works with all methods - unique path
+
+    // Step 1: Create a cluster and initial route with GET method only
+    let cluster_result = create_cluster_via_api(cluster_name, "test-backend", 80).await;
+    assert!(cluster_result.is_ok(), "Failed to create cluster: {:?}", cluster_result);
+
+    let route_result = create_route_with_methods(route_path, cluster_name, Some(vec!["GET"])).await;
+    assert!(route_result.is_ok(), "Failed to create route: {:?}", route_result);
+
+    // Get the route ID for updates
+    let route_id = get_route_id_by_path(route_path).await.unwrap();
+
+    // Wait for Envoy to get the configuration
+    sleep(Duration::from_secs(5)).await;
+
+    // Step 2: Test initial GET request works
+    let get_response = send_request_through_envoy_with_method(route_path, "GET").await;
+    assert!(get_response.is_ok(), "GET request should succeed: {:?}", get_response);
+
+    // Step 3: Test POST request fails (not allowed initially)
+    let post_response = send_request_through_envoy_with_method(route_path, "POST").await;
+    match &post_response {
+        Ok(_) => println!("POST request succeeded with status 200. The path was {route_path}"),
+        Err(e) => println!("POST request failed: {}", e),
+    };
+
+    
+    assert!(post_response.is_err(), "POST request should fail initially");
+
+    // Step 4: Update route to allow GET and POST methods
+    let update_result = update_route_methods(&route_id, route_path, cluster_name, vec!["GET", "POST"]).await;
+    assert!(update_result.is_ok(), "Failed to update route methods: {:?}", update_result);
+
+    // Wait for Envoy to get the updated configuration
+    sleep(Duration::from_secs(5)).await;
+
+    // Step 5: Test both GET and POST now work
+    let get_response = send_request_through_envoy_with_method(route_path, "GET").await;
+    assert!(get_response.is_ok(), "GET request should still work: {:?}", get_response);
+
+    let post_response = send_request_through_envoy_with_method(route_path, "POST").await;
+    assert!(post_response.is_ok(), "POST request should now work: {:?}", post_response);
+
+    // Step 6: Update route to remove method restrictions (allow all)
+    let update_result = update_route_remove_methods(&route_id, route_path, cluster_name).await;
+    assert!(update_result.is_ok(), "Failed to remove method restrictions: {:?}", update_result);
+
+    // Wait for Envoy to get the updated configuration
+    sleep(Duration::from_secs(5)).await;
+
+    // Step 7: Test that PUT method now works (should be allowed with no restrictions)
+    let put_response = send_request_through_envoy_with_method(route_path, "PUT").await;
+    assert!(put_response.is_ok(), "PUT request should work with no restrictions: {:?}", put_response);
+
+    // Cleanup
+    let _ = delete_route(&route_id).await;
+    let _ = delete_cluster(cluster_name).await;
+}
+
+#[tokio::test]
+#[ignore] // Run with: cargo test --ignored e2e_test_route_update_full_lifecycle  
+async fn e2e_test_route_update_full_lifecycle() {
+    wait_for_services().await;
+
+    let cluster_name = "lifecycle-route-cluster";
+    let initial_path = "/status/203";  // httpbin endpoint that works with all methods - unique path
+    let updated_path = "/status/204";  // httpbin endpoint that works with all methods - unique path
+
+    // Step 1: Create cluster and initial route
+    let cluster_result = create_cluster_via_api(cluster_name, "test-backend", 80).await;
+    assert!(cluster_result.is_ok(), "Failed to create cluster: {:?}", cluster_result);
+
+    let route_result = create_route_with_methods(initial_path, cluster_name, Some(vec!["GET"])).await;
+    assert!(route_result.is_ok(), "Failed to create route: {:?}", route_result);
+
+    let route_id = get_route_id_by_path(initial_path).await.unwrap();
+
+    let route_response = get_route_by_id(&route_id).await;
+    println!("DEBUG: Route response after update: {:?}", route_response);
+
+    // Wait for Envoy configuration
+    sleep(Duration::from_secs(5)).await;
+
+    // Step 2: Test initial route works
+    let initial_response = send_request_through_envoy_with_method(initial_path, "GET").await;
+    assert!(initial_response.is_ok(), "Initial route should work: {:?}", initial_response);
+
+    // Step 3: Update route to new path and different methods
+    let update_result = update_route_full(&route_id, updated_path, cluster_name, vec!["POST", "PUT"]).await;
+    assert!(update_result.is_ok(), "Failed to update route: {:?}", update_result);
+
+    // Wait for Envoy configuration
+    sleep(Duration::from_secs(5)).await;
+
+    let route_response = get_route_by_id(&route_id).await;
+    println!("DEBUG: Route response after update: {:?}", route_response);
+
+    // Step 4: Test old path no longer works
+    let old_response = send_request_through_envoy_with_method(initial_path, "GET").await;
+    assert!(old_response.is_err(), "Old route path should no longer work");
+
+    // Step 5: Test new path works with correct methods
+    let new_post_response = send_request_through_envoy_with_method(updated_path, "POST").await;
+    assert!(new_post_response.is_ok(), "New route POST should work: {:?}", new_post_response);
+
+    let new_put_response = send_request_through_envoy_with_method(updated_path, "PUT").await;
+    assert!(new_put_response.is_ok(), "New route PUT should work: {:?}", new_put_response);
+
+    // Step 6: Test new path rejects old method
+    let new_get_response = send_request_through_envoy_with_method(updated_path, "GET").await;
+    assert!(new_get_response.is_err(), "New route should reject GET method");
+
+    // Cleanup
+    let _ = delete_route(&route_id).await;
+    let _ = delete_cluster(cluster_name).await;
+}
+
+// Helper functions for route testing
+
+async fn create_route_with_methods(path: &str, cluster_name: &str, methods: Option<Vec<&str>>) -> Result<(), String> {
+    let client = reqwest::Client::new();
+    let mut route_data = json!({
+        "path": path,
+        "cluster_name": cluster_name
+    });
+
+    if let Some(methods) = methods {
+        route_data["http_methods"] = json!(methods);
+    }
+
+    match client
+        .post("http://localhost:8080/routes")
+        .json(&route_data)
+        .send()
+        .await
+    {
+        Ok(response) => {
+            let status = response.status();
+            if status.is_success() {
+                println!("DEBUG: Create route response status: {} and body: {}", status, &route_data);
+                Ok(())
+            } else {
+                let text = response.text().await.unwrap_or_default();
+                Err(format!("Create route failed with status: {} body: {}", status, text))
+            }
+        }
+        Err(e) => Err(format!("Create route request failed: {}", e)),
+    }
+}
+
+async fn get_route_by_id(route_id: &str) -> Result<Value, String> {
+    let client = reqwest::Client::new();
+    let url = format!("http://localhost:8080/routes/{}", route_id);
+    
+    match client.get(&url).send().await {
+        Ok(response) => {
+            let status = response.status();
+            if status.is_success() {
+                let text = response.text().await.unwrap_or_default();
+                serde_json::from_str(&text).map_err(|e| format!("Failed to parse route response: {}", e))
+            } else {
+                Err(format!("Get route failed with status: {}", status))
+            }
+        }
+        Err(e) => Err(format!("Get route request failed: {}", e)),
+    }
+}
+
+async fn get_route_id_by_path(path: &str) -> Result<String, String> {
+    let client = reqwest::Client::new();
+    match client.get("http://localhost:8080/routes").send().await {
+        Ok(response) => {
+            let status = response.status();
+            if status.is_success() {
+                let text = response.text().await.unwrap_or_default();
+                let routes_response: Value = serde_json::from_str(&text)
+                    .map_err(|e| format!("Failed to parse routes response: {}", e))?;
+                
+                if let Some(routes) = routes_response["data"].as_array() {
+                    for route in routes {
+                        if route["path"].as_str() == Some(path) {
+                            if let Some(id) = route["id"].as_str() {
+                                return Ok(id.to_string());
+                            }
+                        }
+                    }
+                }
+                Err(format!("Route with path {} not found", path))
+            } else {
+                Err(format!("Get routes failed with status: {}", status))
+            }
+        }
+        Err(e) => Err(format!("Get routes request failed: {}", e)),
+    }
+}
+
+async fn update_route_methods(route_id: &str, path: &str, cluster_name: &str, methods: Vec<&str>) -> Result<(), String> {
+    let client = reqwest::Client::new();
+    let url = format!("http://localhost:8080/routes/{}", route_id);
+    
+    let update_data = json!({
+        "path": path,
+        "cluster_name": cluster_name,
+        "http_methods": methods
+    });
+
+    match client.put(&url).json(&update_data).send().await {
+        Ok(response) => {
+            let status = response.status();
+            println!("DEBUG: Update route {path} methods response status: {status}");
+            if status.is_success() {
+                Ok(())
+            } else {
+                let text = response.text().await.unwrap_or_default();
+                Err(format!("Update route methods failed with status: {} body: {}", status, text))
+            }
+        }
+        Err(e) => Err(format!("Update route methods request failed: {}", e)),
+    }
+}
+
+async fn update_route_remove_methods(route_id: &str, path: &str, cluster_name: &str) -> Result<(), String> {
+    let client = reqwest::Client::new();
+    let url = format!("http://localhost:8080/routes/{}", route_id);
+    
+    let update_data = json!({
+        "path": path,
+        "cluster_name": cluster_name
+    });
+
+    match client.put(&url).json(&update_data).send().await {
+        Ok(response) => {
+            let status = response.status();
+            if status.is_success() {
+                Ok(())
+            } else {
+                let text = response.text().await.unwrap_or_default();
+                Err(format!("Update route remove methods failed with status: {} body: {}", status, text))
+            }
+        }
+        Err(e) => Err(format!("Update route remove methods request failed: {}", e)),
+    }
+}
+
+async fn update_route_full(route_id: &str, path: &str, cluster_name: &str, methods: Vec<&str>) -> Result<(), String> {
+    let client = reqwest::Client::new();
+    let url = format!("http://localhost:8080/routes/{}", route_id);
+    
+    let update_data = json!({
+        "path": path,
+        "cluster_name": cluster_name,
+        "http_methods": methods
+    });
+
+    match client.put(&url).json(&update_data).send().await {
+        Ok(response) => {
+            let status = response.status();
+            if status.is_success() {
+                Ok(())
+            } else {
+                let text = response.text().await.unwrap_or_default();
+                Err(format!("Update route full failed with status: {} body: {}", status, text))
+            }
+        }
+        Err(e) => Err(format!("Update route full request failed: {}", e)),
+    }
+}
+
+async fn send_request_through_envoy_with_method(path: &str, method: &str) -> Result<(), String> {
+    let client = reqwest::Client::new();
+    let url = format!("http://localhost:10000{}", path);
+
+    let request = match method.to_uppercase().as_str() {
+        "GET" => client.get(&url),
+        "POST" => client.post(&url),
+        "PUT" => client.put(&url),
+        "DELETE" => client.delete(&url),
+        "PATCH" => client.patch(&url),
+        "HEAD" => client.head(&url),
+        _ => return Err(format!("Unsupported HTTP method: {}", method)),
+    };
+
+    match request.send().await {
+        Ok(response) => {
+            let status = response.status();
+            println!("DEBUG: Request to {} with method {} returned status: {}", url, method, status);
+            if status.is_success() {
+                Ok(())
+            } else {
+                Err(format!("Request failed with status: {}", status))
+            }
+        }
+        Err(e) => Err(format!("Request to Envoy failed: {}", e)),
+    }
+}
+
+async fn delete_route(route_id: &str) -> Result<(), String> {
+    let client = reqwest::Client::new();
+    let url = format!("http://localhost:8080/routes/{}", route_id);
+
+    match client.delete(&url).send().await {
+        Ok(response) => {
+            let status = response.status();
+            if status.is_success() {
+                Ok(())
+            } else {
+                let text = response.text().await.unwrap_or_default();
+                Err(format!("Delete route failed with status: {} body: {}", status, text))
+            }
+        }
+        Err(e) => Err(format!("Delete route request failed: {}", e)),
     }
 }

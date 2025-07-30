@@ -34,6 +34,7 @@ pub struct Route {
     pub path: String,
     pub cluster_name: String,
     pub prefix_rewrite: Option<String>,
+    pub http_methods: Option<Vec<String>>, // GET, POST, PUT, DELETE, etc.
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,6 +57,22 @@ impl Route {
             path,
             cluster_name,
             prefix_rewrite,
+            http_methods: None,
+        }
+    }
+
+    pub fn with_methods(
+        path: String,
+        cluster_name: String,
+        prefix_rewrite: Option<String>,
+        http_methods: Option<Vec<String>>,
+    ) -> Self {
+        Self {
+            id: Uuid::new_v4().to_string(),
+            path,
+            cluster_name,
+            prefix_rewrite,
+            http_methods,
         }
     }
 }

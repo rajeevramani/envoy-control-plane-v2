@@ -236,7 +236,7 @@ fn validate_timeout(timeout_seconds: u64, field_name: &str) -> Result<()> {
 mod tests {
     use super::*;
     use crate::config::{
-        ControlPlaneConfig, EnvoyGenerationConfig, LoadBalancingConfig, LoggingConfig, TlsConfig,
+        ControlPlaneConfig, EnvoyGenerationConfig, HttpMethodsConfig, LoadBalancingConfig, LoggingConfig, TlsConfig,
     };
     use std::path::PathBuf;
 
@@ -260,6 +260,14 @@ mod tests {
                     envoy_version: "1.24".to_string(),
                     available_policies: vec!["ROUND_ROBIN".to_string()],
                     default_policy: "ROUND_ROBIN".to_string(),
+                },
+                http_methods: HttpMethodsConfig {
+                    supported_methods: vec![
+                        "GET".to_string(),
+                        "POST".to_string(),
+                        "PUT".to_string(),
+                        "DELETE".to_string(),
+                    ],
                 },
             },
             envoy_generation: EnvoyGenerationConfig {

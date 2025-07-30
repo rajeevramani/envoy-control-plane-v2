@@ -16,6 +16,7 @@ pub struct ControlPlaneConfig {
     pub tls: TlsConfig,
     pub logging: LoggingConfig,
     pub load_balancing: LoadBalancingConfig,
+    pub http_methods: HttpMethodsConfig,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -42,6 +43,11 @@ pub struct LoadBalancingConfig {
     pub envoy_version: String,
     pub available_policies: Vec<String>,
     pub default_policy: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct HttpMethodsConfig {
+    pub supported_methods: Vec<String>,
 }
 
 // Envoy configuration generation (for generating Envoy configs)
@@ -135,6 +141,14 @@ impl AppConfig {
                     envoy_version: "1.24".to_string(),
                     available_policies: vec!["ROUND_ROBIN".to_string()],
                     default_policy: "ROUND_ROBIN".to_string(),
+                },
+                http_methods: HttpMethodsConfig {
+                    supported_methods: vec![
+                        "GET".to_string(),
+                        "POST".to_string(),
+                        "PUT".to_string(),
+                        "DELETE".to_string(),
+                    ],
                 },
             },
             envoy_generation: EnvoyGenerationConfig {

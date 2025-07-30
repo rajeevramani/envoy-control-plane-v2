@@ -83,6 +83,22 @@ pub struct EnvoyRoute {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RouteMatch {
     pub prefix: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub headers: Option<Vec<HeaderMatcher>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct HeaderMatcher {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exact_match: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub safe_regex_match: Option<RegexMatcher>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RegexMatcher {
+    pub regex: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -294,12 +310,38 @@ admin:
     ) -> anyhow::Result<Listener> {
         let envoy_routes: Vec<EnvoyRoute> = routes
             .into_iter()
-            .map(|route| EnvoyRoute {
-                route_match: RouteMatch { prefix: route.path },
-                route: RouteAction {
-                    cluster: route.cluster_name,
-                    prefix_rewrite: route.prefix_rewrite,
-                },
+            .map(|route| {
+                let headers = route.http_methods.as_ref().map(|methods| {
+                    if methods.len() == 1 {
+                        // Single method - use exact match
+                        vec![HeaderMatcher {
+                            name: ":method".to_string(),
+                            exact_match: Some(methods[0].clone()),
+                            safe_regex_match: None,
+                        }]
+                    } else {
+                        // Multiple methods - use regex match
+                        let regex_pattern = format!("^({})$", methods.join("|"));
+                        vec![HeaderMatcher {
+                            name: ":method".to_string(),
+                            exact_match: None,
+                            safe_regex_match: Some(RegexMatcher {
+                                regex: regex_pattern,
+                            }),
+                        }]
+                    }
+                });
+
+                EnvoyRoute {
+                    route_match: RouteMatch { 
+                        prefix: route.path,
+                        headers,
+                    },
+                    route: RouteAction {
+                        cluster: route.cluster_name,
+                        prefix_rewrite: route.prefix_rewrite,
+                    },
+                }
             })
             .collect();
 

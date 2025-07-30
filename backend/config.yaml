@@ -21,6 +21,17 @@ control_plane:
       - "RANDOM"
       - "RING_HASH"
     default_policy: "ROUND_ROBIN"  # Default when none specified
+  http_methods:
+    supported_methods:     # HTTP methods our control plane supports for routing
+      - "GET"
+      - "POST"
+      - "PUT"
+      - "DELETE"
+      - "PATCH"
+      - "HEAD"
+      - "OPTIONS"
+      - "TRACE"
+      - "CONNECT"
 
 # ===========================================
 # ENVOY CONFIGURATION GENERATION

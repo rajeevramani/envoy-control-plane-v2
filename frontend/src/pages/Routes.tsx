@@ -8,6 +8,7 @@ interface Route {
   path: string
   cluster_name: string
   prefix_rewrite?: string
+  http_methods?: string[]
 }
 
 interface Cluster {
@@ -31,11 +32,25 @@ export function Routes() {
     queryFn: () => apiClient.getClusters(),
   })
 
+  const { data: supportedHttpMethods = [], isLoading: httpMethodsLoading } = useQuery({
+    queryKey: ['supported-http-methods'],
+    queryFn: () => apiClient.getSupportedHttpMethods(),
+  })
+
   const createMutation = useMutation({
     mutationFn: (route: Omit<Route, 'id'>) => apiClient.createRoute(route),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['routes'] })
       setIsCreateOpen(false)
+    },
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, route }: { id: string; route: Omit<Route, 'id'> }) => 
+      apiClient.updateRoute(id, route),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['routes'] })
+      setEditingRoute(null)
     },
   })
 
@@ -52,7 +67,7 @@ export function Routes() {
     }
   }
 
-  const isLoading = routesLoading || clustersLoading
+  const isLoading = routesLoading || clustersLoading || httpMethodsLoading
 
   if (isLoading) {
     return (
@@ -144,6 +159,11 @@ export function Routes() {
                                 Rewrite: {route.prefix_rewrite}
                               </p>
                             )}
+                            {route.http_methods && route.http_methods.length > 0 && (
+                              <p className="mt-2 flex items-center text-sm text-gray-500 sm:mt-0 sm:ml-6">
+                                Methods: {route.http_methods.join(', ')}
+                              </p>
+                            )}
                           </div>
                         </div>
                         {cluster && (
@@ -185,15 +205,20 @@ export function Routes() {
         <RouteForm
           route={editingRoute}
           clusters={clusters}
+          supportedHttpMethods={supportedHttpMethods}
           onSubmit={(route) => {
-            createMutation.mutate(route)
-            setEditingRoute(null)
+            if (editingRoute) {
+              updateMutation.mutate({ id: editingRoute.id, route })
+            } else {
+              createMutation.mutate(route)
+              setIsCreateOpen(false)
+            }
           }}
           onClose={() => {
             setIsCreateOpen(false)
             setEditingRoute(null)
           }}
-          isLoading={createMutation.isPending}
+          isLoading={createMutation.isPending || updateMutation.isPending}
         />
       )}
     </div>
@@ -203,15 +228,25 @@ export function Routes() {
 interface RouteFormProps {
   route?: Route | null
   clusters: Cluster[]
+  supportedHttpMethods: string[]
   onSubmit: (route: Omit<Route, 'id'>) => void
   onClose: () => void
   isLoading: boolean
 }
 
-function RouteForm({ route, clusters, onSubmit, onClose, isLoading }: RouteFormProps) {
+function RouteForm({ route, clusters, supportedHttpMethods, onSubmit, onClose, isLoading }: RouteFormProps) {
   const [path, setPath] = useState(route?.path || '')
   const [clusterName, setClusterName] = useState(route?.cluster_name || '')
   const [prefixRewrite, setPrefixRewrite] = useState(route?.prefix_rewrite || '')
+  const [selectedMethods, setSelectedMethods] = useState<string[]>(route?.http_methods || [])
+
+  const toggleMethod = (method: string) => {
+    setSelectedMethods(prev => 
+      prev.includes(method) 
+        ? prev.filter(m => m !== method)
+        : [...prev, method].sort()
+    )
+  }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -221,6 +256,7 @@ function RouteForm({ route, clusters, onSubmit, onClose, isLoading }: RouteFormP
       path: path.trim(),
       cluster_name: clusterName.trim(),
       prefix_rewrite: prefixRewrite.trim() || undefined,
+      http_methods: selectedMethods.length > 0 ? selectedMethods : undefined,
     })
   }
 
@@ -306,16 +342,48 @@ function RouteForm({ route, clusters, onSubmit, onClose, isLoading }: RouteFormP
               </p>
             </div>
 
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                HTTP Methods (Optional)
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                {supportedHttpMethods.map((method) => (
+                  <label key={method} className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={selectedMethods.includes(method)}
+                      onChange={() => toggleMethod(method)}
+                      className="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 rounded"
+                    />
+                    <span className="ml-2 text-sm text-gray-700">{method}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="mt-2 text-sm text-gray-500">
+                {selectedMethods.length === 0 
+                  ? "No methods selected - route will accept all HTTP methods"
+                  : `Selected: ${selectedMethods.join(', ')}`
+                }
+              </p>
+            </div>
+
             <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
               <h4 className="text-sm font-medium text-blue-800 mb-2">Route Preview</h4>
               <div className="text-sm text-blue-700">
                 {path && clusterName ? (
                   <div>
-                    Requests to <code className="bg-blue-100 px-1 rounded">{path}*</code> will be forwarded to cluster{' '}
-                    <code className="bg-blue-100 px-1 rounded">{clusterName}</code>
-                    {prefixRewrite && (
-                      <span> with path rewritten to <code className="bg-blue-100 px-1 rounded">{prefixRewrite}*</code></span>
-                    )}
+                    <div>
+                      {selectedMethods.length > 0 ? (
+                        <span><code className="bg-blue-100 px-1 rounded">{selectedMethods.join(', ')}</code> requests</span>
+                      ) : (
+                        <span>All HTTP requests</span>
+                      )}
+                      {' '}to <code className="bg-blue-100 px-1 rounded">{path}*</code> will be forwarded to cluster{' '}
+                      <code className="bg-blue-100 px-1 rounded">{clusterName}</code>
+                      {prefixRewrite && (
+                        <span> with path rewritten to <code className="bg-blue-100 px-1 rounded">{prefixRewrite}*</code></span>
+                      )}
+                    </div>
                   </div>
                 ) : (
                   <div className="text-gray-500">Fill in the form to see route preview</div>

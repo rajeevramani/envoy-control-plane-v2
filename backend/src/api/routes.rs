@@ -22,6 +22,7 @@ pub fn create_router(store: ConfigStore, xds_server: SimpleXdsServer) -> Router 
         .route("/routes", post(handlers::create_route))
         .route("/routes", get(handlers::list_routes))
         .route("/routes/:id", get(handlers::get_route))
+        .route("/routes/:id", put(handlers::update_route))
         .route("/routes/:id", delete(handlers::delete_route))
         // Cluster endpoints
         .route("/clusters", post(handlers::create_cluster))
@@ -35,6 +36,8 @@ pub fn create_router(store: ConfigStore, xds_server: SimpleXdsServer) -> Router 
             "/generate-bootstrap",
             get(handlers::generate_bootstrap_config),
         )
+        // HTTP methods
+        .route("/supported-http-methods", get(handlers::get_supported_http_methods))
         // Health check
         .route("/health", get(health_check))
         // Add CORS middleware to allow frontend access

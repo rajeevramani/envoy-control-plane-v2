@@ -1,6 +1,10 @@
 pub mod api;
+pub mod auth;
+pub mod auth_handlers;
+pub mod auth_middleware;
 pub mod config;
 pub mod envoy;
+pub mod rbac;
 pub mod security;
 pub mod storage;
 pub mod xds;

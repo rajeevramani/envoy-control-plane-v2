@@ -17,6 +17,7 @@ pub struct ControlPlaneConfig {
     pub logging: LoggingConfig,
     pub load_balancing: LoadBalancingConfig,
     pub http_methods: HttpMethodsConfig,
+    pub authentication: AuthenticationConfig,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -48,6 +49,15 @@ pub struct LoadBalancingConfig {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct HttpMethodsConfig {
     pub supported_methods: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AuthenticationConfig {
+    pub enabled: bool,
+    pub jwt_secret: String,
+    pub jwt_expiry_hours: u64,
+    pub jwt_issuer: String,
+    pub password_hash_cost: u32,
 }
 
 // Envoy configuration generation (for generating Envoy configs)
@@ -149,6 +159,13 @@ impl AppConfig {
                         "PUT".to_string(),
                         "DELETE".to_string(),
                     ],
+                },
+                authentication: AuthenticationConfig {
+                    enabled: false,  // Disabled for tests
+                    jwt_secret: "test-secret-key-change-in-production".to_string(),
+                    jwt_expiry_hours: 24,
+                    jwt_issuer: "envoy-control-plane-test".to_string(),
+                    password_hash_cost: 8,  // Lower cost for faster tests
                 },
             },
             envoy_generation: EnvoyGenerationConfig {

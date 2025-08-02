@@ -32,6 +32,12 @@ control_plane:
       - "OPTIONS"
       - "TRACE"
       - "CONNECT"
+  authentication:
+    enabled: false                   # Disabled for E2E testing
+    jwt_secret: "test-jwt-secret-key-for-e2e-testing"
+    jwt_expiry_hours: 1             # Short expiry for tests
+    jwt_issuer: "envoy-control-plane-test"
+    password_hash_cost: 4           # Low cost for fast tests
 
 # ===========================================
 # ENVOY CONFIGURATION GENERATION - E2E TESTING

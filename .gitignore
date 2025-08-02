@@ -9,6 +9,8 @@ tests/e2e/envoy-bootstrap-generated.yaml
 tests/e2e/envoy-bootstrap-tls.yaml
 tests/e2e/envoy-bootstrap-plain.yaml
 .env.test
+envoy-bootstrap-tls.yaml
+
 
 # Security - Never commit certificates or private keys
 certs/

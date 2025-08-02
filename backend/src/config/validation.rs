@@ -269,6 +269,13 @@ mod tests {
                         "DELETE".to_string(),
                     ],
                 },
+                authentication: crate::config::AuthenticationConfig {
+                    enabled: false,  // Disabled for tests
+                    jwt_secret: "test-secret-key".to_string(),
+                    jwt_expiry_hours: 1,
+                    jwt_issuer: "test-issuer".to_string(),
+                    password_hash_cost: 4,  // Low cost for fast tests
+                },
             },
             envoy_generation: EnvoyGenerationConfig {
                 // Minimal setup for testing

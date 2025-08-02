@@ -1,11 +1,17 @@
 mod api;
+mod auth;
+mod auth_handlers;
+mod auth_middleware;
 mod config;
 mod envoy;
+mod rbac;
 mod security;
 mod storage;
 mod xds;
 
+use auth::JwtKeys;
 use config::AppConfig;
+use rbac::RbacEnforcer;
 use storage::ConfigStore;
 use tokio::net::TcpListener;
 use tonic::transport::Server;
@@ -22,8 +28,14 @@ async fn main() -> anyhow::Result<()> {
     // Create xDS server
     let xds_server = xds::SimpleXdsServer::new(store.clone());
 
-    // Create API router with both store and xDS server
-    let app = api::create_router(store.clone(), xds_server.clone());
+    // Initialize authentication components
+    let jwt_keys = JwtKeys::new(config.control_plane.authentication.clone());
+    
+    // Initialize RBAC (create simple in-memory enforcer for now)
+    let rbac = RbacEnforcer::new_simple().await?;
+
+    // Create API router with all components
+    let app = api::create_router(store.clone(), xds_server.clone(), jwt_keys, rbac);
 
     // Start both servers concurrently
     let rest_addr = format!(

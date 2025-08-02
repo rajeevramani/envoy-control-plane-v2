@@ -5,7 +5,8 @@ edition = "2021"
 
 [dependencies]
 # Web server framework
-axum = "0.7"
+axum = "0.8.4"                # Latest stable Axum
+axum-extra = { version = "0.10.1", features = ["typed-header"] }  # For JWT header extraction
 tokio = { version = "1.46", features = ["full"] }
 tokio-stream = "0.1.17"
 tower = "0.5"
@@ -35,6 +36,14 @@ config = "0.14"
 
 # UUID generation
 uuid = { version = "1.0", features = ["v4", "serde"] }
+
+# Authentication & Authorization - Modern 2024 Stack
+jsonwebtoken = "9.3.1"           # JWT creation & validation
+casbin = "2.10.1"                # RBAC authorization system  
+chrono = { version = "0.4.41", features = ["serde"] }  # Time handling
+bcrypt = "0.15"                  # Password hashing
+async-trait = "0.1.88"          # For async traits
+
 
 # gRPC and protobuf for xDS
 tonic = { version = "0.13.1", features = ["tls-ring"] }

@@ -23,23 +23,78 @@ interface ApiResponse<T> {
   message: string
 }
 
+// Authentication interfaces
+interface LoginRequest {
+  username: string
+  password: string
+}
+
+interface LoginResponse {
+  token: string
+  user_id: string
+  username: string
+  expires_in: number
+}
+
+interface UserInfo {
+  user_id: string
+  username: string
+  roles: string[]
+}
+
+interface AuthHealth {
+  authentication_enabled: boolean
+  jwt_issuer: string
+  jwt_expiry_hours: number
+  available_demo_users: string[]
+  demo_credentials: Record<string, string>
+}
+
 class ApiClient {
   private baseUrl: string
+  private tokenKey = 'envoy_control_plane_token'
 
   constructor() {
     this.baseUrl = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8080'
+  }
+
+  // Token management
+  setToken(token: string): void {
+    localStorage.setItem(this.tokenKey, token)
+  }
+
+  getToken(): string | null {
+    return localStorage.getItem(this.tokenKey)
+  }
+
+  removeToken(): void {
+    localStorage.removeItem(this.tokenKey)
+  }
+
+  private getAuthHeaders(): Record<string, string> {
+    const token = this.getToken()
+    return token ? { Authorization: `Bearer ${token}` } : {}
   }
 
   private async request<T>(endpoint: string, options?: RequestInit): Promise<T> {
     const response = await fetch(`${this.baseUrl}${endpoint}`, {
       headers: {
         'Content-Type': 'application/json',
+        ...this.getAuthHeaders(),
         ...options?.headers,
       },
       ...options,
     })
     
     if (!response.ok) {
+      // Handle auth errors specifically
+      if (response.status === 401) {
+        this.removeToken() // Clear invalid token
+        throw new Error('Authentication required')
+      }
+      if (response.status === 403) {
+        throw new Error('Access forbidden')
+      }
       throw new Error(`HTTP error! status: ${response.status}`)
     }
     
@@ -128,6 +183,62 @@ class ApiClient {
   // HTTP Methods
   async getSupportedHttpMethods(): Promise<string[]> {
     return this.request<string[]>('/supported-http-methods')
+  }
+
+  // Authentication Methods
+  async login(credentials: LoginRequest): Promise<LoginResponse> {
+    const response = await fetch(`${this.baseUrl}/auth/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(credentials),
+    })
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error('Invalid username or password')
+      }
+      if (response.status === 503) {
+        throw new Error('Authentication is disabled')
+      }
+      throw new Error(`Login failed: ${response.status}`)
+    }
+
+    const result: ApiResponse<LoginResponse> = await response.json()
+    
+    // Store the token
+    this.setToken(result.data.token)
+    
+    return result.data
+  }
+
+  async logout(): Promise<void> {
+    try {
+      await fetch(`${this.baseUrl}/auth/logout`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...this.getAuthHeaders(),
+        },
+      })
+    } finally {
+      // Always remove token even if logout request fails
+      this.removeToken()
+    }
+  }
+
+  async getCurrentUser(): Promise<UserInfo> {
+    return this.request<UserInfo>('/auth/me')
+  }
+
+  async getAuthHealth(): Promise<AuthHealth> {
+    return this.request<AuthHealth>('/auth/health')
+  }
+
+  // Check if user is authenticated
+  isAuthenticated(): boolean {
+    return this.getToken() !== null
   }
 }
 

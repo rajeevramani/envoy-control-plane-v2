@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2, Edit, Route as RouteIcon } from 'lucide-react'
+import { Plus, Trash2, Edit, Route as RouteIcon, Lock } from 'lucide-react'
 import { apiClient } from '../lib/api-client'
+import { useCanWrite } from '../lib/auth-context'
 
 interface Route {
   id: string
@@ -21,6 +22,7 @@ export function Routes() {
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [editingRoute, setEditingRoute] = useState<Route | null>(null)
   const queryClient = useQueryClient()
+  const canWrite = useCanWrite('routes')
 
   const { data: routes = [], isLoading: routesLoading } = useQuery({
     queryKey: ['routes'],
@@ -86,14 +88,21 @@ export function Routes() {
             Manage your Envoy route configurations
           </p>
         </div>
-        <button
-          onClick={() => setIsCreateOpen(true)}
-          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500"
-          disabled={clusters.length === 0}
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          Create Route
-        </button>
+        {canWrite ? (
+          <button
+            onClick={() => setIsCreateOpen(true)}
+            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500"
+            disabled={clusters.length === 0}
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Create Route
+          </button>
+        ) : (
+          <div className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-500 bg-gray-100">
+            <Lock className="h-4 w-4 mr-2" />
+            Create Route (Admin Only)
+          </div>
+        )}
       </div>
 
       {clusters.length === 0 && (
@@ -178,19 +187,27 @@ export function Routes() {
                         )}
                       </div>
                       <div className="ml-2 flex-shrink-0 flex space-x-2">
-                        <button
-                          onClick={() => setEditingRoute(route)}
-                          className="inline-flex items-center p-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
-                        >
-                          <Edit className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(route)}
-                          className="inline-flex items-center p-2 border border-red-300 rounded-md shadow-sm text-sm font-medium text-red-700 bg-white hover:bg-red-50"
-                          disabled={deleteMutation.isPending}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                        {canWrite ? (
+                          <>
+                            <button
+                              onClick={() => setEditingRoute(route)}
+                              className="inline-flex items-center p-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                            >
+                              <Edit className="h-4 w-4" />
+                            </button>
+                            <button
+                              onClick={() => handleDelete(route)}
+                              className="inline-flex items-center p-2 border border-red-300 rounded-md shadow-sm text-sm font-medium text-red-700 bg-white hover:bg-red-50"
+                              disabled={deleteMutation.isPending}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </>
+                        ) : (
+                          <div className="inline-flex items-center p-2 border border-gray-200 rounded-md text-sm font-medium text-gray-400 bg-gray-50">
+                            <Lock className="h-4 w-4" />
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

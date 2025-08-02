@@ -7,20 +7,37 @@ use serde_json::json;
 use tower::ServiceExt;
 
 use envoy_control_plane::api::routes::create_router;
+use envoy_control_plane::auth::JwtKeys;
+use envoy_control_plane::config::AuthenticationConfig;
+use envoy_control_plane::rbac::RbacEnforcer;
 use envoy_control_plane::storage::{models::*, ConfigStore};
 use envoy_control_plane::xds::simple_server::SimpleXdsServer;
 
 /// Helper function to create a test app with fresh storage
-fn create_test_app() -> (Router, ConfigStore) {
+async fn create_test_app() -> (Router, ConfigStore) {
     let store = ConfigStore::new();
     let xds_server = SimpleXdsServer::new(store.clone());
-    let app = create_router(store.clone(), xds_server);
+    
+    // Create auth components with authentication DISABLED for tests
+    let auth_config = AuthenticationConfig {
+        enabled: false,  // 🔑 Key: Disabled for tests!
+        jwt_secret: "test-secret-key".to_string(),
+        jwt_expiry_hours: 1,
+        jwt_issuer: "test-issuer".to_string(),
+        password_hash_cost: 4,
+    };
+    let jwt_keys = JwtKeys::new(auth_config);
+    
+    // Create simple RBAC enforcer (not used since auth is disabled)  
+    let rbac = RbacEnforcer::new_simple().await.unwrap();
+    
+    let app = create_router(store.clone(), xds_server, jwt_keys, rbac);
     (app, store)
 }
 
 #[tokio::test]
 async fn test_health_endpoint() {
-    let (app, _store) = create_test_app();
+    let (app, _store) = create_test_app().await;
 
     let response = app
         .oneshot(
@@ -43,7 +60,7 @@ async fn test_health_endpoint() {
 
 #[tokio::test]
 async fn test_create_and_get_cluster() {
-    let (app, _store) = create_test_app();
+    let (app, _store) = create_test_app().await;
 
     // Create a cluster
     let cluster_data = json!({
@@ -94,7 +111,7 @@ async fn test_create_and_get_cluster() {
 
 #[tokio::test]
 async fn test_create_and_get_route() {
-    let (app, _store) = create_test_app();
+    let (app, _store) = create_test_app().await;
 
     // Create a route
     let route_data = json!({
@@ -141,7 +158,7 @@ async fn test_create_and_get_route() {
 
 #[tokio::test]
 async fn test_delete_cluster() {
-    let (app, store) = create_test_app();
+    let (app, store) = create_test_app().await;
 
     // Create a cluster first
     let cluster = Cluster {
@@ -177,7 +194,7 @@ async fn test_delete_cluster() {
 
 #[tokio::test]
 async fn test_delete_route() {
-    let (app, store) = create_test_app();
+    let (app, store) = create_test_app().await;
 
     // Create a route first
     let route = Route {
@@ -212,7 +229,7 @@ async fn test_delete_route() {
 
 #[tokio::test]
 async fn test_invalid_cluster_creation() {
-    let (app, _store) = create_test_app();
+    let (app, _store) = create_test_app().await;
 
     // Create a cluster with invalid data (missing name)
     let cluster_data = json!({
@@ -241,7 +258,7 @@ async fn test_invalid_cluster_creation() {
 
 #[tokio::test]
 async fn test_invalid_route_creation() {
-    let (app, _store) = create_test_app();
+    let (app, _store) = create_test_app().await;
 
     // Create a route with invalid data (missing path)
     let route_data = json!({
@@ -266,7 +283,7 @@ async fn test_invalid_route_creation() {
 
 #[tokio::test]
 async fn test_get_nonexistent_cluster() {
-    let (app, _store) = create_test_app();
+    let (app, _store) = create_test_app().await;
 
     let response = app
         .oneshot(
@@ -283,7 +300,7 @@ async fn test_get_nonexistent_cluster() {
 
 #[tokio::test]
 async fn test_get_nonexistent_route() {
-    let (app, _store) = create_test_app();
+    let (app, _store) = create_test_app().await;
 
     let response = app
         .oneshot(
@@ -300,7 +317,7 @@ async fn test_get_nonexistent_route() {
 
 #[tokio::test]
 async fn test_multiple_clusters() {
-    let (app, _store) = create_test_app();
+    let (app, _store) = create_test_app().await;
 
     // Create first cluster
     let cluster1_data = json!({
@@ -378,7 +395,7 @@ async fn test_multiple_clusters() {
 // Tests for our new load balancing policy functionality
 #[tokio::test]
 async fn test_create_cluster_with_valid_lb_policy() {
-    let (app, _store) = create_test_app();
+    let (app, _store) = create_test_app().await;
 
     // Create a cluster with valid LB policy
     let cluster_data = json!({
@@ -416,7 +433,7 @@ async fn test_create_cluster_with_valid_lb_policy() {
 
 #[tokio::test]
 async fn test_create_cluster_with_invalid_lb_policy() {
-    let (app, _store) = create_test_app();
+    let (app, _store) = create_test_app().await;
 
     // Create a cluster with invalid LB policy
     let cluster_data = json!({
@@ -454,7 +471,7 @@ async fn test_create_cluster_with_invalid_lb_policy() {
 
 #[tokio::test]
 async fn test_create_cluster_without_lb_policy_uses_default() {
-    let (app, _store) = create_test_app();
+    let (app, _store) = create_test_app().await;
 
     // Create a cluster without specifying LB policy (should use default)
     let cluster_data = json!({
@@ -491,7 +508,7 @@ async fn test_create_cluster_without_lb_policy_uses_default() {
 // Tests for HTTP method routing functionality
 #[tokio::test]
 async fn test_create_route_with_single_http_method() {
-    let (app, _store) = create_test_app();
+    let (app, _store) = create_test_app().await;
 
     // Create a route with single HTTP method
     let route_data = json!({
@@ -524,7 +541,7 @@ async fn test_create_route_with_single_http_method() {
 
 #[tokio::test]
 async fn test_create_route_with_multiple_http_methods() {
-    let (app, _store) = create_test_app();
+    let (app, _store) = create_test_app().await;
 
     // Create a route with multiple HTTP methods
     let route_data = json!({
@@ -556,7 +573,7 @@ async fn test_create_route_with_multiple_http_methods() {
 
 #[tokio::test]
 async fn test_create_route_without_http_methods() {
-    let (app, _store) = create_test_app();
+    let (app, _store) = create_test_app().await;
 
     // Create a route without HTTP methods (should accept all methods)
     let route_data = json!({
@@ -587,7 +604,7 @@ async fn test_create_route_without_http_methods() {
 
 #[tokio::test]
 async fn test_create_route_with_invalid_http_method() {
-    let (app, _store) = create_test_app();
+    let (app, _store) = create_test_app().await;
 
     // Create a route with invalid HTTP method
     let route_data = json!({
@@ -620,7 +637,7 @@ async fn test_create_route_with_invalid_http_method() {
 
 #[tokio::test]
 async fn test_create_route_with_all_valid_http_methods() {
-    let (app, _store) = create_test_app();
+    let (app, _store) = create_test_app().await;
 
     // Create a route with all valid HTTP methods
     let route_data = json!({
@@ -652,7 +669,7 @@ async fn test_create_route_with_all_valid_http_methods() {
 
 #[tokio::test]
 async fn test_create_route_with_mixed_valid_invalid_methods() {
-    let (app, _store) = create_test_app();
+    let (app, _store) = create_test_app().await;
 
     // Create a route with mix of valid and invalid methods
     let route_data = json!({
@@ -685,7 +702,7 @@ async fn test_create_route_with_mixed_valid_invalid_methods() {
 
 #[tokio::test]
 async fn test_create_route_with_case_insensitive_methods() {
-    let (app, _store) = create_test_app();
+    let (app, _store) = create_test_app().await;
 
     // Create a route with lowercase HTTP methods (should be accepted)
     let route_data = json!({
@@ -718,7 +735,7 @@ async fn test_create_route_with_case_insensitive_methods() {
 // Tests for route update functionality
 #[tokio::test]
 async fn test_update_route_with_http_methods() {
-    let (app, store) = create_test_app();
+    let (app, store) = create_test_app().await;
 
     // Create initial route
     let route = Route {
@@ -767,7 +784,7 @@ async fn test_update_route_with_http_methods() {
 
 #[tokio::test]
 async fn test_update_route_remove_http_methods() {
-    let (app, store) = create_test_app();
+    let (app, store) = create_test_app().await;
 
     // Create initial route with HTTP methods
     let route = Route {
@@ -809,7 +826,7 @@ async fn test_update_route_remove_http_methods() {
 
 #[tokio::test]
 async fn test_update_route_with_invalid_http_method() {
-    let (app, store) = create_test_app();
+    let (app, store) = create_test_app().await;
 
     // Create initial route
     let route = Route {
@@ -858,7 +875,7 @@ async fn test_update_route_with_invalid_http_method() {
 
 #[tokio::test]
 async fn test_update_nonexistent_route() {
-    let (app, _store) = create_test_app();
+    let (app, _store) = create_test_app().await;
 
     let fake_route_id = uuid::Uuid::new_v4().to_string();
     let update_data = json!({
@@ -883,7 +900,7 @@ async fn test_update_nonexistent_route() {
 
 #[tokio::test]
 async fn test_update_route_change_cluster_and_path() {
-    let (app, store) = create_test_app();
+    let (app, store) = create_test_app().await;
 
     // Create initial route
     let route = Route {

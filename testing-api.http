@@ -1,3 +1,17 @@
+# @name auth
+
+POST http://localhost:8080/auth/login
+Content-Type: application/json
+
+{
+  "username": "admin",
+  "password": "admin123"
+}
+
+### OAuth Token
+@authToken = {{auth.response.body.$.token}}
+
+
 ### Health Check
 GET http://127.0.0.1:8080/health
 
@@ -6,6 +20,22 @@ GET http://127.0.0.1:8080/health
 # @name cluster
 POST http://127.0.0.1:8080/clusters
 Content-Type: application/json
+Authorization: Bearer {{authToken}}
+
+{
+  "name": "lifecycle-test-cluster",
+  "endpoints": [
+    {
+      "host": "httpbin.org",
+      "port": 80
+    },{
+      "host": "httpbin.org",
+      "port": 80,
+      "tls_enabled": true
+    }
+  ],
+  "lb_policy": "LEAST_REQUEST"
+}
 
 {
   "name": "httpbin-service",
@@ -80,6 +110,19 @@ GET http://127.0.0.1:8080/clusters/{{clusterId}}
 # @name route
 POST http://127.0.0.1:8080/routes
 Content-Type: application/json
+Authorization: Bearer {{authToken}}
+
+{
+  "name": "test-route",
+  "cluster_name": "{{clusterId}}",
+  "prefix_rewrite": "/status/200",
+  "path": "/status/200",
+  "http_methods": [
+    "GET",
+    "POST",
+    "PUT"
+  ]
+}
 
 {
   "path": "/status/200",
@@ -91,6 +134,7 @@ Content-Type: application/json
 
 ### Get Routes
 GET http://127.0.0.1:8080/routes
+Authorization: Bearer {{authToken}}
 
 ### Get Route
 GET http://127.0.0.1:8080/routes/{{routeId}}
@@ -105,13 +149,19 @@ Content-Type: application/json
 }
 
 ### Make api call
-GET http://localhost:10000/status/200
+POST http://localhost:10000/status/200
 
 ### Make api call
 PUT http://localhost:10000/put
 
 ### Make api call
-GET http://localhost:10000/v1/get
+GET http://localhost:10000/api/v1/get
+
+### Make api call
+POST http://localhost:10000/api/v1/post
+
+### Make api call
+put http://localhost:10000/api/v1/put
 
 ### Delete Route
 DELETE  http://127.0.0.1:8080/routes/{{routeId}}

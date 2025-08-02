@@ -32,6 +32,12 @@ control_plane:
       - "OPTIONS"
       - "TRACE"
       - "CONNECT"
+  authentication:
+    enabled: true                    # Enable authentication
+    jwt_secret: "your-super-secret-jwt-key-change-in-production-2024"
+    jwt_expiry_hours: 24            # JWT tokens expire after 24 hours
+    jwt_issuer: "envoy-control-plane"
+    password_hash_cost: 12          # bcrypt cost (higher = more secure, slower)
 
 # ===========================================
 # ENVOY CONFIGURATION GENERATION

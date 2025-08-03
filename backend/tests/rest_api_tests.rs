@@ -459,7 +459,7 @@ async fn test_create_cluster_with_invalid_lb_policy() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
@@ -625,7 +625,7 @@ async fn test_create_route_with_invalid_http_method() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
@@ -690,7 +690,7 @@ async fn test_create_route_with_mixed_valid_invalid_methods() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
@@ -859,7 +859,7 @@ async fn test_update_route_with_invalid_http_method() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await

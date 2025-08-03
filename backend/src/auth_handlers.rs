@@ -7,8 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::api::handlers::ApiResponse;
 use crate::api::routes::AppState;
-use crate::auth::{create_jwt_token, JwtKeys, Claims};
-use crate::rbac::RbacEnforcer;
+use crate::auth::{create_jwt_token, Claims};
 
 /// Login request payload
 #[derive(Debug, Deserialize)]

@@ -41,7 +41,7 @@ uuid = { version = "1.0", features = ["v4", "serde"] }
 jsonwebtoken = "9.3.1"           # JWT creation & validation
 casbin = "2.10.1"                # RBAC authorization system  
 chrono = { version = "0.4.41", features = ["serde"] }  # Time handling
-bcrypt = "0.15"                  # Password hashing
+bcrypt = "0.17.0"                # Password hashing
 async-trait = "0.1.88"          # For async traits
 
 

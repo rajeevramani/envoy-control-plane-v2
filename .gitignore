@@ -12,6 +12,9 @@ tests/e2e/envoy-bootstrap-plain.yaml
 envoy-bootstrap-tls.yaml
 
 
+# Claude
+.claude/
+
 # Security - Never commit certificates or private keys
 certs/
 *.crt

@@ -14,9 +14,19 @@ pub enum LoadBalancingPolicy {
 }
 
 impl FromStr for LoadBalancingPolicy {
-    type Err = (); // We never fail, unknown strings become Custom variants
+    type Err = LoadBalancingPolicyParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // Validate input
+        if s.is_empty() {
+            return Err(LoadBalancingPolicyParseError::Empty);
+        }
+        
+        // Check for invalid characters that might break configuration
+        if s.contains('\n') || s.contains('\r') || s.contains('\0') {
+            return Err(LoadBalancingPolicyParseError::InvalidCharacters(s.to_string()));
+        }
+        
         let policy = match s {
             "ROUND_ROBIN" => LoadBalancingPolicy::RoundRobin,
             "LEAST_REQUEST" => LoadBalancingPolicy::LeastRequest,
@@ -25,6 +35,25 @@ impl FromStr for LoadBalancingPolicy {
             custom => LoadBalancingPolicy::Custom(custom.to_string()),
         };
         Ok(policy)
+    }
+}
+
+/// Errors that can occur when parsing LoadBalancingPolicy
+#[derive(Debug, thiserror::Error)]
+pub enum LoadBalancingPolicyParseError {
+    #[error("Load balancing policy cannot be empty")]
+    Empty,
+    
+    #[error("Load balancing policy contains invalid characters: '{0}'")]
+    InvalidCharacters(String),
+}
+
+impl LoadBalancingPolicy {
+    /// Safe parsing method that provides better error context
+    pub fn parse_safe(s: &str, context: &str) -> Result<Self, String> {
+        s.parse().map_err(|e: LoadBalancingPolicyParseError| {
+            format!("Failed to parse load balancing policy in {}: {}", context, e)
+        })
     }
 }
 

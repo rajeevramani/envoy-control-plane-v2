@@ -52,7 +52,7 @@ impl LoadBalancingPolicy {
     /// Safe parsing method that provides better error context
     pub fn parse_safe(s: &str, context: &str) -> Result<Self, String> {
         s.parse().map_err(|e: LoadBalancingPolicyParseError| {
-            format!("Failed to parse load balancing policy in {}: {}", context, e)
+            format!("Failed to parse load balancing policy in {context}: {e}")
         })
     }
 }

@@ -12,8 +12,8 @@ pub struct RbacEnforcer {
 impl RbacEnforcer {
     /// Create new RBAC enforcer from policy files
     pub async fn new(model_path: String, policy_path: String) -> CasbinResult<Self> {
-        println!("🔐 Loading RBAC model from: {}", model_path);
-        println!("📋 Loading RBAC policies from: {}", policy_path);
+        println!("🔐 Loading RBAC model from: {model_path}" );
+        println!("📋 Loading RBAC policies from: {policy_path}" );
         
         // Create model and adapter from file paths
         let model = DefaultModel::from_file(&model_path).await?;
@@ -98,7 +98,7 @@ m = g(r.sub, p.sub) && r.obj == p.obj && r.act == p.act
         resource: &str, 
         action: &str,
     ) -> CasbinResult<bool> {
-        println!("🔍 RBAC Check: user={}, resource={}, action={}", user_id, resource, action);
+        println!("🔍 RBAC Check: user={user_id}, resource={resource}, action={action}");
         
         let enforcer = self.enforcer.read().await;
         let allowed = enforcer.enforce((user_id, resource, action))?;
@@ -109,14 +109,14 @@ m = g(r.sub, p.sub) && r.obj == p.obj && r.act == p.act
     
     /// Add a user to a role (e.g., "john" → "admin")
     pub async fn assign_role(&self, user_id: &str, role: &str) -> CasbinResult<bool> {
-        println!("👤 Assigning role '{}' to user '{}'", role, user_id);
+        println!("👤 Assigning role '{role}' to user '{user_id}'" );
         let mut enforcer = self.enforcer.write().await;
         enforcer.add_grouping_policy(vec![user_id.to_string(), role.to_string()]).await
     }
     
     /// Remove a user from a role
     pub async fn remove_role(&self, user_id: &str, role: &str) -> CasbinResult<bool> {
-        println!("🗑️ Removing role '{}' from user '{}'", role, user_id);
+        println!("🗑️ Removing role '{role}' from user '{user_id}'" );
         let mut enforcer = self.enforcer.write().await;
         enforcer.remove_grouping_policy(vec![user_id.to_string(), role.to_string()]).await
     }
@@ -125,7 +125,7 @@ m = g(r.sub, p.sub) && r.obj == p.obj && r.act == p.act
     pub async fn get_user_roles(&self, user_id: &str) -> Vec<String> {
         let enforcer = self.enforcer.read().await;
         let roles = enforcer.get_roles_for_user(user_id, None);
-        println!("🔍 RBAC: get_user_roles('{}') = {:?}", user_id, roles);
+        println!("🔍 RBAC: get_user_roles('{user_id}') = {roles:?}");
         roles
     }
     

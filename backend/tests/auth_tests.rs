@@ -131,7 +131,7 @@ async fn test_login_with_valid_credentials() {
     // Login with admin credentials
     let login_data = json!({
         "username": "admin",
-        "password": "admin123"
+        "password": "secure-admin-123"
     });
 
     let response = app
@@ -218,7 +218,7 @@ async fn test_login_when_auth_disabled() {
 
     let login_data = json!({
         "username": "admin",
-        "password": "admin123"
+        "password": "secure-admin-123"
     });
 
     let response = app
@@ -243,9 +243,9 @@ async fn test_login_with_all_demo_users() {
 
     // Test all demo users
     let demo_users = vec![
-        ("admin", "admin123"),
-        ("user", "user123"),
-        ("demo", "demo123"),
+        ("admin", "secure-admin-123"),
+        ("user", "secure-user-456"),
+        ("demo", "secure-demo-789"),
     ];
 
     for (username, password) in demo_users {
@@ -340,7 +340,7 @@ async fn test_protected_route_with_valid_admin_token() {
     // First, login to get a token
     let login_data = json!({
         "username": "admin",
-        "password": "admin123"
+        "password": "secure-admin-123"
     });
 
     let login_response = app
@@ -401,7 +401,7 @@ async fn test_user_cannot_create_routes() {
     // Login as regular user
     let login_data = json!({
         "username": "user",
-        "password": "user123"
+        "password": "secure-user-456"
     });
 
     let login_response = app
@@ -520,7 +520,7 @@ async fn test_read_routes_work_with_and_without_auth() {
     // Now test with authentication (should also work)
     let login_data = json!({
         "username": "user",
-        "password": "user123"
+        "password": "secure-user-456"
     });
 
     let login_response = app
@@ -567,7 +567,7 @@ async fn test_get_user_info_with_valid_token() {
     // Login first
     let login_data = json!({
         "username": "admin",
-        "password": "admin123"
+        "password": "secure-admin-123"
     });
 
     let login_response = app

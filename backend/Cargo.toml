@@ -43,6 +43,7 @@ casbin = "2.10.1"                # RBAC authorization system
 chrono = { version = "0.4.41", features = ["serde"] }  # Time handling
 bcrypt = "0.15"                  # Password hashing
 async-trait = "0.1.88"          # For async traits
+rand = "0.8"                     # For secure secret generation
 
 
 # gRPC and protobuf for xDS
@@ -60,6 +61,7 @@ reqwest = { version = "0.11", features = ["json"] }
 tower-test = "0.4"
 serial_test = "3.0"
 tempfile = "3.0"  # For creating temporary test files
+rand = "0.8"      # For secure test secret generation
 
 [build-dependencies]
 tonic-build = "0.13.1"

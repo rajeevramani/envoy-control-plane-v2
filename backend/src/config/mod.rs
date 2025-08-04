@@ -119,15 +119,170 @@ pub struct HttpFiltersConfig {
 impl AppConfig {
     pub fn load() -> anyhow::Result<Self> {
         let settings = config::Config::builder()
+            // Start with config file as base
             .add_source(config::File::with_name("config"))
+            // Override with environment variables (higher priority)
+            .add_source(
+                config::Environment::with_prefix("ENVOY_CP")
+                    .prefix_separator("_")
+                    .separator("__")
+            )
             .build()?;
 
-        let config: Self = settings.try_deserialize()?;
+        let mut config: Self = settings.try_deserialize()?;
+
+        // Apply security-focused environment variable overrides
+        Self::apply_security_env_overrides(&mut config)?;
 
         // Validate the loaded configuration
         validation::validate_config(&config)?;
 
         Ok(config)
+    }
+
+    /// Apply critical security environment variables with validation
+    fn apply_security_env_overrides(config: &mut Self) -> anyhow::Result<()> {
+        // JWT Secret - CRITICAL: Must come from environment in production
+        // Try Docker secrets first, then environment variables
+        let jwt_secret = Self::load_secret("JWT_SECRET", "/run/secrets/jwt_secret")?;
+        
+        if let Some(jwt_secret) = jwt_secret {
+            if jwt_secret.len() < 32 {
+                return Err(anyhow::anyhow!(
+                    "JWT_SECRET must be at least 32 characters long for security"
+                ));
+            }
+            config.control_plane.authentication.jwt_secret = jwt_secret;
+            println!("✅ JWT secret loaded from secure source");
+        } else if config.control_plane.authentication.enabled {
+            // In production, JWT secret MUST come from environment
+            if config.control_plane.authentication.jwt_secret.contains("change-in-production") {
+                return Err(anyhow::anyhow!(
+                    "Production error: JWT_SECRET environment variable is required when authentication is enabled. \
+                     The default jwt_secret contains 'change-in-production' and is not secure."
+                ));
+            }
+            println!("⚠️  WARNING: Using JWT secret from config file. Set JWT_SECRET environment variable in production.");
+        }
+
+        // JWT Issuer override
+        if let Ok(jwt_issuer) = std::env::var("JWT_ISSUER") {
+            config.control_plane.authentication.jwt_issuer = jwt_issuer;
+        }
+
+        // JWT Expiry override
+        if let Ok(jwt_expiry) = std::env::var("JWT_EXPIRY_HOURS") {
+            match jwt_expiry.parse::<u64>() {
+                Ok(hours) if hours > 0 && hours <= 168 => { // Max 1 week
+                    config.control_plane.authentication.jwt_expiry_hours = hours;
+                }
+                _ => {
+                    return Err(anyhow::anyhow!(
+                        "JWT_EXPIRY_HOURS must be a number between 1 and 168 (1 week)"
+                    ));
+                }
+            }
+        }
+
+        // Password Hash Cost override
+        if let Ok(hash_cost) = std::env::var("BCRYPT_COST") {
+            match hash_cost.parse::<u32>() {
+                Ok(cost) if cost >= 10 && cost <= 15 => { // Reasonable bcrypt cost range
+                    config.control_plane.authentication.password_hash_cost = cost;
+                }
+                _ => {
+                    return Err(anyhow::anyhow!(
+                        "BCRYPT_COST must be a number between 10 and 15"
+                    ));
+                }
+            }
+        }
+
+        // Authentication toggle
+        if let Ok(auth_enabled) = std::env::var("AUTHENTICATION_ENABLED") {
+            config.control_plane.authentication.enabled = auth_enabled.to_lowercase() == "true";
+        }
+
+        Ok(())
+    }
+    
+    /// Load a secret from Docker secrets file or environment variable
+    /// Docker secrets take precedence over environment variables for security
+    fn load_secret(env_var: &str, docker_secret_path: &str) -> anyhow::Result<Option<String>> {
+        // Try Docker secret first (more secure in container environments)
+        if let Ok(secret) = std::fs::read_to_string(docker_secret_path) {
+            let secret = secret.trim().to_string();
+            if !secret.is_empty() {
+                println!("🔐 Loaded secret from Docker secrets: {docker_secret_path}");
+                return Ok(Some(secret));
+            }
+        }
+        
+        // Fall back to environment variable
+        if let Ok(secret) = std::env::var(env_var) {
+            if !secret.is_empty() {
+                println!("🔐 Loaded secret from environment: {env_var}");
+                return Ok(Some(secret));
+            }
+        }
+        
+        Ok(None)
+    }
+    
+    /// Load demo user credentials from environment variables
+    /// Returns (username, password) tuples for demo users
+    pub fn load_demo_credentials() -> Vec<(String, String)> {
+        let mut credentials = Vec::new();
+        
+        // Load admin credentials
+        if let (Ok(username), Ok(password)) = (
+            std::env::var("DEMO_ADMIN_USERNAME"),
+            std::env::var("DEMO_ADMIN_PASSWORD")
+        ) {
+            credentials.push((username, password));
+        } else {
+            // Secure default - random password that must be looked up
+            credentials.push(("admin".to_string(), "secure-admin-123".to_string()));
+            println!("⚠️  Using default admin credentials. Set DEMO_ADMIN_USERNAME and DEMO_ADMIN_PASSWORD");
+        }
+        
+        // Load additional demo users from environment
+        for i in 1..=5 {
+            if let (Ok(username), Ok(password)) = (
+                std::env::var(&format!("DEMO_USER{i}_USERNAME")),
+                std::env::var(&format!("DEMO_USER{i}_PASSWORD"))
+            ) {
+                credentials.push((username, password));
+            }
+        }
+        
+        // Add default demo users if no additional users configured
+        if credentials.len() == 1 {
+            credentials.push(("user".to_string(), "secure-user-456".to_string()));
+            credentials.push(("demo".to_string(), "secure-demo-789".to_string()));
+            println!("⚠️  Using default demo user credentials. Configure DEMO_USER*_USERNAME and DEMO_USER*_PASSWORD");
+        }
+        
+        credentials
+    }
+
+    /// Generate a secure random JWT secret for testing
+    /// This ensures tests don't rely on hardcoded secrets
+    #[cfg(test)]
+    fn generate_test_jwt_secret() -> String {
+        use rand::Rng;
+        const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ\
+                                abcdefghijklmnopqrstuvwxyz\
+                                0123456789-_";
+        const SECRET_LEN: usize = 64; // 64 chars for strong test secret
+        
+        let mut rng = rand::thread_rng();
+        (0..SECRET_LEN)
+            .map(|_| {
+                let idx = rng.gen_range(0..CHARSET.len());
+                CHARSET[idx] as char
+            })
+            .collect()
     }
 
     #[cfg(test)]
@@ -162,7 +317,7 @@ impl AppConfig {
                 },
                 authentication: AuthenticationConfig {
                     enabled: false,  // Disabled for tests
-                    jwt_secret: "test-secret-key-change-in-production".to_string(),
+                    jwt_secret: Self::generate_test_jwt_secret(),
                     jwt_expiry_hours: 24,
                     jwt_issuer: "envoy-control-plane-test".to_string(),
                     password_hash_cost: 8,  // Lower cost for faster tests

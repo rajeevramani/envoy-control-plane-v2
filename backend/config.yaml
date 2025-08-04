@@ -34,7 +34,7 @@ control_plane:
       - "CONNECT"
   authentication:
     enabled: true                    # Enable authentication
-    jwt_secret: "your-super-secret-jwt-key-change-in-production-2024"
+    jwt_secret: "MUST_BE_SET_VIA_JWT_SECRET_ENV_VAR"  # SECURITY: Use JWT_SECRET environment variable
     jwt_expiry_hours: 24            # JWT tokens expire after 24 hours
     jwt_issuer: "envoy-control-plane"
     password_hash_cost: 12          # bcrypt cost (higher = more secure, slower)

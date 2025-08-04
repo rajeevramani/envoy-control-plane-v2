@@ -35,38 +35,47 @@ pub struct UserInfo {
 }
 
 /// Simple user database (in production, this would be a real database)
-/// For demo purposes, we'll have some hardcoded users
+/// For demo purposes, we'll have some hardcoded users with proper bcrypt hashing
 struct User {
     pub id: String,
     pub username: String,
-    pub password_hash: String, // In production, this would be bcrypt hashed
+    pub password_hash: String, // bcrypt hashed password
 }
 
 impl User {
-    fn new(id: &str, username: &str, password: &str) -> Self {
-        // In production, you'd hash the password with bcrypt
-        // For demo, we'll use plain text (NOT SECURE!)
+    fn new(id: &str, username: &str, password: &str, bcrypt_cost: u32) -> Self {
+        // Hash password with bcrypt for security
+        let password_hash = bcrypt::hash(password, bcrypt_cost)
+            .expect("Failed to hash password with bcrypt");
+        
         Self {
             id: id.to_string(),
             username: username.to_string(),
-            password_hash: password.to_string(), // WARNING: Not hashed for demo!
+            password_hash,
         }
     }
     
     fn verify_password(&self, password: &str) -> bool {
-        // In production, use bcrypt::verify
-        self.password_hash == password
+        // Use bcrypt::verify for secure password verification
+        bcrypt::verify(password, &self.password_hash)
+            .unwrap_or(false)
     }
 }
 
-/// Get demo users (in production, this would query a database)
-fn get_demo_users() -> Vec<User> {
-    vec![
-        User::new("admin", "admin", "admin123"),
-        User::new("user", "user", "user123"),
-        User::new("demo", "demo", "demo123"),
-        User::new("developer", "developer", "password123"),
-    ]
+/// Get demo users from secure configuration
+/// Uses bcrypt hashing for password security
+/// Credentials are loaded from environment variables for security
+fn get_demo_users(bcrypt_cost: u32) -> Vec<User> {
+    let credentials = crate::config::AppConfig::load_demo_credentials();
+    
+    credentials
+        .into_iter()
+        .enumerate()
+        .map(|(idx, (username, password))| {
+            let user_id = if idx == 0 { "admin".to_string() } else { format!("user_{}", idx) };
+            User::new(&user_id, &username, &password, bcrypt_cost)
+        })
+        .collect()
 }
 
 /// Login endpoint - authenticates user and returns JWT token
@@ -83,7 +92,7 @@ pub async fn login(
     }
 
     // Find user in our demo database
-    let users = get_demo_users();
+    let users = get_demo_users(app_state.jwt_keys.config.password_hash_cost);
     let user = users
         .iter()
         .find(|u| u.username == login_req.username)
@@ -164,18 +173,18 @@ pub async fn logout() -> Json<ApiResponse<()>> {
     ))
 }
 
-/// Health check for auth system
+/// Health check for auth system - secure version without credential exposure
 pub async fn auth_health(State(app_state): State<AppState>) -> Json<ApiResponse<serde_json::Value>> {
     let status = serde_json::json!({
         "authentication_enabled": app_state.jwt_keys.config.enabled,
         "jwt_issuer": app_state.jwt_keys.config.jwt_issuer,
         "jwt_expiry_hours": app_state.jwt_keys.config.jwt_expiry_hours,
-        "available_demo_users": ["admin", "user", "demo"],
-        "demo_credentials": {
-            "admin": "admin123",
-            "user": "user123", 
-            "demo": "demo123"
-        }
+        "bcrypt_cost": app_state.jwt_keys.config.password_hash_cost,
+        "available_demo_users": get_demo_users(app_state.jwt_keys.config.password_hash_cost)
+            .iter()
+            .map(|u| &u.username)
+            .collect::<Vec<_>>(),
+        "security_note": "Demo credentials removed for security - use proper authentication"
     });
 
     Json(ApiResponse::success(
@@ -192,28 +201,45 @@ mod tests {
     fn create_test_config() -> AuthenticationConfig {
         AuthenticationConfig {
             enabled: true,
-            jwt_secret: "test-secret-key".to_string(),
+            jwt_secret: generate_test_jwt_secret(),
             jwt_expiry_hours: 1,
             jwt_issuer: "test-issuer".to_string(),
-            password_hash_cost: 8,
+            password_hash_cost: 8, // Lower cost for faster tests
         }
+    }
+    
+    /// Generate a secure random JWT secret for testing
+    fn generate_test_jwt_secret() -> String {
+        use rand::Rng;
+        const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ\
+                                abcdefghijklmnopqrstuvwxyz\
+                                0123456789-_";
+        const SECRET_LEN: usize = 64;
+        
+        let mut rng = rand::thread_rng();
+        (0..SECRET_LEN)
+            .map(|_| {
+                let idx = rng.gen_range(0..CHARSET.len());
+                CHARSET[idx] as char
+            })
+            .collect()
     }
 
     #[test]
     fn test_user_password_verification() {
-        let user = User::new("test", "testuser", "password123");
+        let user = User::new("test", "testuser", "password123", 8); // Lower cost for tests
         assert!(user.verify_password("password123"));
         assert!(!user.verify_password("wrong_password"));
     }
 
     #[test]
     fn test_demo_users_creation() {
-        let users = get_demo_users();
-        assert_eq!(users.len(), 4);
+        let users = get_demo_users(8); // Lower cost for tests
+        assert_eq!(users.len(), 3); // Updated to match secure implementation
         assert!(users.iter().any(|u| u.username == "admin"));
         assert!(users.iter().any(|u| u.username == "user"));
         assert!(users.iter().any(|u| u.username == "demo"));
-        assert!(users.iter().any(|u| u.username == "developer"));
+        // Note: 'developer' user removed from secure default configuration
     }
 
     #[tokio::test]

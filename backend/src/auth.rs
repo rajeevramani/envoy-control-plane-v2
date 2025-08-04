@@ -114,11 +114,28 @@ mod tests {
     fn create_test_config() -> AuthenticationConfig {
         AuthenticationConfig {
             enabled: true,
-            jwt_secret: "test-secret-key".to_string(),
+            jwt_secret: generate_test_jwt_secret(),
             jwt_expiry_hours: 1,
             jwt_issuer: "test-issuer".to_string(),
-            password_hash_cost: 8,
+            password_hash_cost: 8, // Lower cost for faster tests
         }
+    }
+    
+    /// Generate a secure random JWT secret for testing
+    fn generate_test_jwt_secret() -> String {
+        use rand::Rng;
+        const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ\
+                                abcdefghijklmnopqrstuvwxyz\
+                                0123456789-_";
+        const SECRET_LEN: usize = 64;
+        
+        let mut rng = rand::thread_rng();
+        (0..SECRET_LEN)
+            .map(|_| {
+                let idx = rng.gen_range(0..CHARSET.len());
+                CHARSET[idx] as char
+            })
+            .collect()
     }
 
     #[test]

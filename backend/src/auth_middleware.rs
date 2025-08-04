@@ -49,14 +49,14 @@ pub async fn auth_middleware(
         &jwt_keys.validation,
     )
     .map_err(|e| {
-        println!("❌ Auth Middleware: JWT validation failed: {}", e);
+        println!("❌ Auth Middleware: JWT validation failed: {e}");
         StatusCode::UNAUTHORIZED
     })?;
     
     let claims = token_data.claims;
     
     let user_id = claims.user_id();
-    println!("✅ Auth Middleware: JWT valid for user: {}", user_id);
+    println!("✅ Auth Middleware: JWT valid for user: {user_id}" );
     
     // Step 3: RBAC Authorization - Check permissions
     println!("🔐 Auth Middleware: Step 2 - RBAC Authorization");
@@ -64,26 +64,24 @@ pub async fn auth_middleware(
     let path = request.uri().path();
     let (resource, action) = extract_resource_and_action(method, path);
     
-    println!("📋 Auth Middleware: Checking permission - method={}, path={}, resource={}, action={}", 
-             method, path, resource, action);
+    println!("📋 Auth Middleware: Checking permission - method={method}, path={path}, resource={resource}, action={action}");
     
     // Check if user has permission for this resource/action
     let allowed = rbac
         .check_permission(user_id, &resource, &action)
         .await
         .map_err(|e| {
-            println!("❌ Auth Middleware: RBAC error: {}", e);
+            println!("❌ Auth Middleware: RBAC error: {e}");
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
     
     if !allowed {
-        println!("🚫 Auth Middleware: Access DENIED - user '{}' cannot '{}' on '{}'", 
-                user_id, action, resource);
+        println!("🚫 Auth Middleware: Access DENIED - user '{user_id}' cannot '{action}' on '{resource}'");
         return Err(StatusCode::FORBIDDEN);
     }
     
-    println!("✅ Auth Middleware: Access GRANTED - user '{}' can '{}' on '{}'", 
-             user_id, action, resource);
+
+    println!("✅ Auth Middleware: Access GRANTED - user '{user_id}' can '{action}' on '{resource}'") ;
     
     // Add claims to request extensions for handlers to use
     request.extensions_mut().insert(claims);
@@ -148,7 +146,6 @@ mod tests {
         body::Body,
         http::{Method, Request, StatusCode},
         middleware,
-        response::Response,
         routing::get,
         Router,
     };
@@ -157,11 +154,28 @@ mod tests {
     fn create_test_config() -> AuthenticationConfig {
         AuthenticationConfig {
             enabled: true,
-            jwt_secret: "test-secret-key".to_string(),
+            jwt_secret: generate_test_jwt_secret(),
             jwt_expiry_hours: 1,
             jwt_issuer: "test-issuer".to_string(),
             password_hash_cost: 8,
         }
+    }
+    
+    /// Generate a secure random JWT secret for testing
+    fn generate_test_jwt_secret() -> String {
+        use rand::Rng;
+        const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ\
+                                abcdefghijklmnopqrstuvwxyz\
+                                0123456789-_";
+        const SECRET_LEN: usize = 64;
+        
+        let mut rng = rand::thread_rng();
+        (0..SECRET_LEN)
+            .map(|_| {
+                let idx = rng.gen_range(0..CHARSET.len());
+                CHARSET[idx] as char
+            })
+            .collect()
     }
     
     async fn test_handler() -> &'static str {

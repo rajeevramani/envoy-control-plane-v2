@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 # Web server framework
 axum = "0.8.4"                # Latest stable Axum
-axum-extra = { version = "0.10.1", features = ["typed-header"] }  # For JWT header extraction
+axum-extra = { version = "0.10.1", features = ["typed-header", "cookie"] }  # For JWT and cookie support
 tokio = { version = "1.46", features = ["full"] }
 tokio-stream = "0.1.17"
 tower = "0.5"
@@ -41,6 +41,7 @@ uuid = { version = "1.0", features = ["v4", "serde"] }
 jsonwebtoken = "9.3.1"           # JWT creation & validation
 casbin = "2.10.1"                # RBAC authorization system  
 chrono = { version = "0.4.41", features = ["serde"] }  # Time handling
+time = "0.3.41"  # For cookie max_age - latest stable
 bcrypt = "0.15"                  # Password hashing
 async-trait = "0.1.88"          # For async traits
 rand = "0.8"                     # For secure secret generation

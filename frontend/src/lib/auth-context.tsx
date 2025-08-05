@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react'
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback, useMemo } from 'react'
 import { apiClient } from './api-client'
 
 interface User {
@@ -29,7 +29,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const isAuthenticated = user !== null
 
-  const login = async (username: string, password: string) => {
+  const login = useCallback(async (username: string, password: string) => {
     try {
       const loginResponse = await apiClient.login({ username, password })
       
@@ -37,53 +37,59 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const userInfo = await apiClient.getCurrentUser()
       setUser(userInfo)
     } catch (error) {
+      // Ensure user state is cleared on failed login
+      setUser(null)
       // Re-throw for the login form to handle
       throw error
     }
-  }
+  }, [])
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     try {
       await apiClient.logout()
+      console.log('🍪 Logout successful - httpOnly cookie cleared')
     } catch (error) {
       console.error('Logout error:', error)
     } finally {
       setUser(null)
     }
-  }
+  }, [])
 
-  const checkAuthStatus = async () => {
+  const checkAuthStatus = useCallback(async () => {
     setIsLoading(true)
     try {
-      if (apiClient.isAuthenticated()) {
-        // Try to get current user info to validate token
-        const userInfo = await apiClient.getCurrentUser()
-        setUser(userInfo)
-      } else {
-        setUser(null)
-      }
+      // Since we can't check httpOnly cookies from JS, we try to get user info
+      // If this succeeds, we're authenticated; if it fails, we're not
+      const userInfo = await apiClient.getCurrentUser()
+      setUser(userInfo)
+      console.log('🍪 Authentication verified via httpOnly cookie')
     } catch (error) {
-      console.error('Auth check failed:', error)
+      console.log('🍪 No valid authentication cookie found')
       setUser(null)
-      apiClient.removeToken() // Clear invalid token
+      // No need to clear token - it's in httpOnly cookie managed by server
     } finally {
       setIsLoading(false)
     }
-  }
-
-  // Check auth status on mount
-  useEffect(() => {
-    checkAuthStatus()
   }, [])
 
-  const value: AuthContextType = {
+  // Check auth status on mount with delay to prevent flash
+  useEffect(() => {
+    // Small delay to prevent flash of login screen on fast networks
+    const timer = setTimeout(() => {
+      checkAuthStatus()
+    }, 100)
+    
+    return () => clearTimeout(timer)
+  }, [checkAuthStatus])
+
+  const value: AuthContextType = useMemo(() => ({
     user,
     isAuthenticated,
     isLoading,
     login,
     logout,
     checkAuthStatus,
-  }
+  }), [user, isAuthenticated, isLoading, login, logout, checkAuthStatus])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

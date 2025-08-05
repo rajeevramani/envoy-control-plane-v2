@@ -40,6 +40,7 @@ interface UserInfo {
   user_id: string
   username: string
   roles: string[]
+  permissions: Record<string, string[]>
 }
 
 interface AuthHealth {
@@ -52,40 +53,62 @@ interface AuthHealth {
 
 class ApiClient {
   private baseUrl: string
-  private tokenKey = 'envoy_control_plane_token'
 
   constructor() {
-    this.baseUrl = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8080'
+    this.baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080'
   }
 
-  // Token management
-  setToken(token: string): void {
-    localStorage.setItem(this.tokenKey, token)
+  // Token management - now handled via httpOnly cookies
+  // These methods are kept for backward compatibility but do nothing
+  setToken(_token: string): void {
+    // No-op - tokens are now stored in httpOnly cookies
+    console.log('🍪 Token storage migrated to httpOnly cookies')
   }
 
   getToken(): string | null {
-    return localStorage.getItem(this.tokenKey)
+    // No-op - tokens are now in httpOnly cookies, not accessible to JS
+    return null
   }
 
   removeToken(): void {
-    localStorage.removeItem(this.tokenKey)
+    // No-op - logout endpoint clears the cookie
+    console.log('🍪 Logout will clear httpOnly cookie')
   }
 
   private getAuthHeaders(): Record<string, string> {
-    const token = this.getToken()
-    return token ? { Authorization: `Bearer ${token}` } : {}
+    // No Authorization header needed - cookies are sent automatically
+    return {}
   }
 
   private async request<T>(endpoint: string, options?: RequestInit): Promise<T> {
-    const response = await fetch(`${this.baseUrl}${endpoint}`, {
-      headers: {
-        'Content-Type': 'application/json',
-        ...this.getAuthHeaders(),
-        ...options?.headers,
-      },
-      ...options,
-    })
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 10000) // 10s timeout
     
+    try {
+      const response = await fetch(`${this.baseUrl}${endpoint}`, {
+        credentials: 'include', // Essential for httpOnly cookies
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest', // CSRF protection
+          ...this.getAuthHeaders(),
+          ...options?.headers,
+        },
+        ...options,
+      })
+      
+      clearTimeout(timeoutId)
+      return await this.handleResponse<T>(response)
+    } catch (error) {
+      clearTimeout(timeoutId)
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new Error('Request timeout - please try again')
+      }
+      throw error
+    }
+  }
+
+  private async handleResponse<T>(response: Response): Promise<T> {
     if (!response.ok) {
       // Handle auth errors specifically
       if (response.status === 401) {
@@ -189,8 +212,10 @@ class ApiClient {
   async login(credentials: LoginRequest): Promise<LoginResponse> {
     const response = await fetch(`${this.baseUrl}/auth/login`, {
       method: 'POST',
+      credentials: 'include', // Essential for receiving cookies
       headers: {
         'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest', // CSRF protection
       },
       body: JSON.stringify(credentials),
     })
@@ -207,8 +232,8 @@ class ApiClient {
 
     const result: ApiResponse<LoginResponse> = await response.json()
     
-    // Store the token
-    this.setToken(result.data.token)
+    // Token is now stored in httpOnly cookie automatically
+    console.log('🍪 Login successful - JWT token stored in secure httpOnly cookie')
     
     return result.data
   }
@@ -217,14 +242,17 @@ class ApiClient {
     try {
       await fetch(`${this.baseUrl}/auth/logout`, {
         method: 'POST',
+        credentials: 'include', // Essential for sending cookies
         headers: {
           'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest', // CSRF protection
           ...this.getAuthHeaders(),
         },
       })
+      console.log('🍪 Logout successful - httpOnly cookie cleared by server')
     } finally {
-      // Always remove token even if logout request fails
-      this.removeToken()
+      // Cookie is cleared by the server, nothing to do here
+      this.removeToken() // No-op for backward compatibility
     }
   }
 
@@ -237,8 +265,12 @@ class ApiClient {
   }
 
   // Check if user is authenticated
+  // Since we can't access httpOnly cookies from JS, we'll determine this
+  // by successfully calling an authenticated endpoint
   isAuthenticated(): boolean {
-    return this.getToken() !== null
+    // This is now a placeholder - actual auth check happens via API calls
+    // The auth-context will call getCurrentUser() to determine auth status
+    return true // Simplified - will be determined by API calls
   }
 }
 

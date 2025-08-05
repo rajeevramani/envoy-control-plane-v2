@@ -4,6 +4,7 @@ use axum::{
     middleware::Next,
     response::Response,
 };
+use axum_extra::extract::CookieJar;
 
 use crate::auth::JwtKeys;
 use crate::rbac::{extract_resource_and_action, RbacEnforcer};
@@ -11,8 +12,10 @@ use crate::rbac::{extract_resource_and_action, RbacEnforcer};
 /// Combined authentication and authorization middleware
 /// 1. First: JWT authentication (who are you?)
 /// 2. Then: RBAC authorization (what can you do?)
+/// Supports both Authorization header and httpOnly cookies
 pub async fn auth_middleware(
     State((jwt_keys, rbac)): State<(JwtKeys, RbacEnforcer)>,
+    jar: CookieJar,
     mut request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
@@ -24,27 +27,37 @@ pub async fn auth_middleware(
         return Ok(next.run(request).await);
     }
     
-    // Step 1: Extract Authorization header
-    let auth_header = request
-        .headers()
-        .get("authorization")
-        .and_then(|header| header.to_str().ok())
-        .and_then(|auth_str| {
-            if auth_str.starts_with("Bearer ") {
-                Some(auth_str.strip_prefix("Bearer ")?)
-            } else {
-                None
-            }
-        })
-        .ok_or_else(|| {
-            println!("❌ Auth Middleware: Missing or invalid Authorization header");
-            StatusCode::UNAUTHORIZED
-        })?;
+    // Step 1: Extract JWT token from cookie or Authorization header
+    let jwt_token = match jar.get("auth_token") {
+        Some(cookie) => {
+            println!("🍪 Auth Middleware: Found JWT token in httpOnly cookie");
+            cookie.value().to_string()
+        }
+        None => {
+            // Fallback to Authorization header for backward compatibility
+            println!("🔍 Auth Middleware: No cookie found, checking Authorization header...");
+            request
+                .headers()
+                .get("authorization")
+                .and_then(|header| header.to_str().ok())
+                .and_then(|auth_str| {
+                    if auth_str.starts_with("Bearer ") {
+                        Some(auth_str.strip_prefix("Bearer ")?.to_string())
+                    } else {
+                        None
+                    }
+                })
+                .ok_or_else(|| {
+                    println!("❌ Auth Middleware: No JWT token found in cookie or Authorization header");
+                    StatusCode::UNAUTHORIZED
+                })?
+        }
+    };
     
     // Step 2: JWT Authentication - Validate JWT token
     println!("🔍 Auth Middleware: Step 1 - JWT Authentication");
     let token_data = jsonwebtoken::decode::<crate::auth::Claims>(
-        auth_header,
+        &jwt_token,
         &jwt_keys.decoding_key,
         &jwt_keys.validation,
     )
@@ -93,8 +106,10 @@ pub async fn auth_middleware(
 /// Optional authentication middleware for routes that should work with or without auth
 /// If JWT is present and valid, it adds claims to request
 /// If JWT is missing or invalid, it continues without claims
+/// Supports both Authorization header and httpOnly cookies
 pub async fn optional_auth_middleware(
     State(jwt_keys): State<JwtKeys>,
+    jar: CookieJar,
     mut request: Request,
     next: Next,
 ) -> Response {
@@ -106,23 +121,34 @@ pub async fn optional_auth_middleware(
         return next.run(request).await;
     }
     
-    // Try to extract JWT if present
-    if let Some(auth_header) = request
-        .headers()
-        .get("authorization")
-        .and_then(|header| header.to_str().ok())
-        .and_then(|auth_str| {
-            if auth_str.starts_with("Bearer ") {
-                auth_str.strip_prefix("Bearer ")
-            } else {
-                None
-            }
-        })
-    {
-        println!("🔍 Optional Auth: Found Bearer token, validating...");
+    // Try to extract JWT from cookie or Authorization header
+    let jwt_token = match jar.get("auth_token") {
+        Some(cookie) => {
+            println!("🍪 Optional Auth: Found JWT token in httpOnly cookie");
+            Some(cookie.value().to_string())
+        }
+        None => {
+            // Fallback to Authorization header
+            println!("🔍 Optional Auth: No cookie found, checking Authorization header...");
+            request
+                .headers()
+                .get("authorization")
+                .and_then(|header| header.to_str().ok())
+                .and_then(|auth_str| {
+                    if auth_str.starts_with("Bearer ") {
+                        Some(auth_str.strip_prefix("Bearer ")?.to_string())
+                    } else {
+                        None
+                    }
+                })
+        }
+    };
+
+    if let Some(token) = jwt_token {
+        println!("🔍 Optional Auth: Found JWT token, validating...");
         
         if let Ok(token_data) = jsonwebtoken::decode::<crate::auth::Claims>(
-            auth_header,
+            &token,
             &jwt_keys.decoding_key,
             &jwt_keys.validation,
         ) {
@@ -132,7 +158,7 @@ pub async fn optional_auth_middleware(
             println!("⚠️  Optional Auth: Invalid JWT token, continuing without authentication");
         }
     } else {
-        println!("ℹ️  Optional Auth: No Bearer token found, continuing without authentication");
+        println!("ℹ️  Optional Auth: No JWT token found, continuing without authentication");
     }
     
     next.run(request).await

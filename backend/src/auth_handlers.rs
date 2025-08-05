@@ -3,6 +3,8 @@ use axum::{
     http::StatusCode,
     response::Json,
 };
+use axum_extra::extract::CookieJar;
+use time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::api::handlers::ApiResponse;
@@ -78,11 +80,12 @@ fn get_demo_users(bcrypt_cost: u32) -> Vec<User> {
         .collect()
 }
 
-/// Login endpoint - authenticates user and returns JWT token
+/// Login endpoint - authenticates user and sets httpOnly cookie
 pub async fn login(
     State(app_state): State<AppState>,
+    jar: CookieJar,
     Json(login_req): Json<LoginRequest>,
-) -> Result<Json<ApiResponse<LoginResponse>>, StatusCode> {
+) -> Result<(CookieJar, Json<ApiResponse<LoginResponse>>), StatusCode> {
     println!("🔐 Login attempt for user: {}", login_req.username);
 
     // Check if authentication is enabled
@@ -120,17 +123,54 @@ pub async fn login(
 
     println!("✅ Login successful for user: {}", user.username);
 
+    // Create secure httpOnly cookie with environment-appropriate settings
+    let expires_in_seconds = (app_state.jwt_keys.config.jwt_expiry_hours * 3600) as i64;
+    
+    // Determine environment-appropriate cookie settings
+    let is_production = std::env::var("NODE_ENV").unwrap_or_default() == "production" || 
+                       std::env::var("RUST_ENV").unwrap_or_default() == "production";
+    
+    let (secure_flag, same_site_policy) = if is_production {
+        // Production: Secure cookies with Lax (assumes HTTPS)
+        (true, axum_extra::extract::cookie::SameSite::Lax)
+    } else {
+        // Development: Use Lax for same-origin requests
+        // This requires both frontend and backend to use the same hostname (localhost)
+        // 
+        // FRONTEND CONFIGURATION REQUIRED:
+        // - Frontend must connect to: http://localhost:8080 (not 127.0.0.1:8080)
+        // - Backend must bind to: 0.0.0.0:8080 or localhost:8080
+        // - This ensures same-origin policy compliance for cookie transmission
+        (false, axum_extra::extract::cookie::SameSite::Lax)
+    };
+    
+    let cookie = axum_extra::extract::cookie::Cookie::build(("auth_token", token.clone()))
+        .http_only(true)
+        .secure(secure_flag)
+        .same_site(same_site_policy)
+        .path("/")
+        .max_age(Duration::seconds(expires_in_seconds))
+        // Optional: Add domain for stricter control in production
+        // .domain(if is_production { Some("your-domain.com") } else { None })
+        .build();
+    
+    println!("🍪 Setting auth cookie - secure: {}, same_site: {:?}, production: {}", 
+             secure_flag, same_site_policy, is_production);
+
+    let jar = jar.add(cookie);
+
+    // Don't return token in response body for security
     let response = LoginResponse {
-        token,
+        token: "".to_string(), // Empty token - stored in httpOnly cookie
         user_id: user.id.clone(),
         username: user.username.clone(),
-        expires_in: (app_state.jwt_keys.config.jwt_expiry_hours * 3600) as i64,
+        expires_in: expires_in_seconds,
     };
 
-    Ok(Json(ApiResponse::success(
+    Ok((jar, Json(ApiResponse::success(
         response,
-        "Login successful",
-    )))
+        "Login successful - token set in secure cookie",
+    ))))
 }
 
 /// Get current user info from JWT token
@@ -160,17 +200,36 @@ pub async fn get_user_info(
     )))
 }
 
-/// Logout endpoint (for completeness - JWT tokens can't be revoked easily)
-/// In production, you might maintain a token blacklist
-pub async fn logout() -> Json<ApiResponse<()>> {
+/// Logout endpoint - clears the httpOnly authentication cookie
+pub async fn logout(jar: CookieJar) -> (CookieJar, Json<ApiResponse<()>>) {
     println!("👋 User logged out");
     
-    // Note: JWTs are stateless, so we can't truly "logout" without maintaining
-    // a blacklist or using short-lived tokens with refresh tokens
-    Json(ApiResponse::success(
+    // Use same environment-appropriate settings as login
+    let is_production = std::env::var("NODE_ENV").unwrap_or_default() == "production" || 
+                       std::env::var("RUST_ENV").unwrap_or_default() == "production";
+    
+    let (secure_flag, same_site_policy) = if is_production {
+        (true, axum_extra::extract::cookie::SameSite::Lax)
+    } else {
+        // Development: Use Lax for same-origin requests
+        (false, axum_extra::extract::cookie::SameSite::Lax)
+    };
+    
+    // Clear the authentication cookie with matching settings
+    let cookie = axum_extra::extract::cookie::Cookie::build(("auth_token", ""))
+        .http_only(true)
+        .secure(secure_flag)
+        .same_site(same_site_policy)
+        .path("/")
+        .max_age(Duration::seconds(0)) // Expire immediately
+        .build();
+
+    let jar = jar.add(cookie);
+
+    (jar, Json(ApiResponse::success(
         (), 
-        "Logout successful - token will expire naturally"
-    ))
+        "Logout successful - authentication cookie cleared"
+    )))
 }
 
 /// Health check for auth system - secure version without credential exposure

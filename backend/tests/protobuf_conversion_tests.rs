@@ -45,7 +45,7 @@ async fn test_cluster_to_proto_conversion() {
 #[tokio::test]
 async fn test_route_to_proto_conversion() {
     let route = Route {
-        id: "test-id".to_string(),
+        name: "test-id".to_string(),
         path: "/api/v1/users".to_string(),
         cluster_name: "user-service".to_string(),
         prefix_rewrite: Some("/users".to_string()),
@@ -96,14 +96,14 @@ async fn test_empty_routes_conversion() {
 async fn test_multiple_routes_conversion() {
     let routes = vec![
         Route {
-            id: "route1".to_string(),
+            name: "route1".to_string(),
             path: "/api/v1/users".to_string(),
             cluster_name: "user-service".to_string(),
             prefix_rewrite: Some("/users".to_string()),
             http_methods: None,
         },
         Route {
-            id: "route2".to_string(),
+            name: "route2".to_string(),
             path: "/api/v1/orders".to_string(),
             cluster_name: "order-service".to_string(),
             prefix_rewrite: None,
@@ -151,7 +151,7 @@ async fn test_cluster_with_single_endpoint() {
 #[tokio::test]
 async fn test_route_without_prefix_rewrite() {
     let route = Route {
-        id: "test-id".to_string(),
+        name: "test-id".to_string(),
         path: "/health".to_string(),
         cluster_name: "health-service".to_string(),
         prefix_rewrite: None,
@@ -175,7 +175,7 @@ async fn test_route_without_prefix_rewrite() {
 #[tokio::test]
 async fn test_route_with_prefix_rewrite() {
     let route = Route {
-        id: "test-id".to_string(),
+        name: "test-id".to_string(),
         path: "/api/v1/health".to_string(),
         cluster_name: "health-service".to_string(),
         prefix_rewrite: Some("/health".to_string()),

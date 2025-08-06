@@ -4,6 +4,7 @@ use axum::{
 };
 use serde_json::json;
 use thiserror::Error;
+use validator::ValidationErrors;
 
 /// Comprehensive error types for the API layer
 #[derive(Error, Debug)]
@@ -115,6 +116,37 @@ impl From<crate::config::validation::ValidationError> for ApiError {
 impl From<crate::storage::LoadBalancingPolicyParseError> for ApiError {
     fn from(err: crate::storage::LoadBalancingPolicyParseError) -> Self {
         ApiError::parse(err.to_string())
+    }
+}
+
+impl From<ValidationErrors> for ApiError {
+    fn from(errors: ValidationErrors) -> Self {
+        let error_messages: Vec<String> = errors
+            .field_errors()
+            .iter()
+            .flat_map(|(field, field_errors)| {
+                let field = field.to_string();
+                field_errors.iter().map(move |error| {
+                    let message = match error.code.as_ref() {
+                        "length" => format!("{} length is invalid", field),
+                        "range" => format!("{} value is out of range", field),
+                        "invalid_route_name" => format!("{} contains invalid characters (only alphanumeric, underscore, hyphen allowed)", field),
+                        "invalid_cluster_name" => format!("{} contains invalid characters (only alphanumeric, underscore, period, hyphen allowed)", field),
+                        "invalid_host" => format!("{} contains invalid characters", field),
+                        "invalid_path_format" => format!("{} must start with / and contain only safe URL characters", field),
+                        "path_traversal_detected" => format!("{} contains path traversal attempt (.. or //)", field),
+                        "invalid_http_method" => format!("{} contains invalid HTTP method", field),
+                        "invalid_lb_policy" => format!("{} contains invalid load balancing policy", field),
+                        "empty_http_methods" => format!("{} cannot be empty", field),
+                        "too_many_http_methods" => format!("{} contains too many methods (max 10)", field),
+                        _ => format!("{} validation failed: {}", field, error.code),
+                    };
+                    message
+                })
+            })
+            .collect();
+
+        ApiError::validation(error_messages.join(", "))
     }
 }
 

@@ -49,7 +49,7 @@ async fn test_get_resources_by_type_routes() {
 
     // Add a test route
     let route = Route {
-        id: "test-id".to_string(),
+        name: "test-id".to_string(),
         path: "/api/v1/test".to_string(),
         cluster_name: "test-cluster".to_string(),
         prefix_rewrite: Some("/test".to_string()),
@@ -144,7 +144,7 @@ async fn test_route_storage_and_retrieval() {
 
     // Test adding and retrieving multiple routes
     let route1 = Route {
-        id: "route1".to_string(),
+        name: "route1".to_string(),
         path: "/api/v1/users".to_string(),
         cluster_name: "user-service".to_string(),
         prefix_rewrite: Some("/users".to_string()),
@@ -152,7 +152,7 @@ async fn test_route_storage_and_retrieval() {
     };
 
     let route2 = Route {
-        id: "route2".to_string(),
+        name: "route2".to_string(),
         path: "/api/v1/orders".to_string(),
         cluster_name: "order-service".to_string(),
         prefix_rewrite: None,
@@ -190,7 +190,7 @@ async fn test_resource_deletion() {
     };
 
     let route = Route {
-        id: "test-route-id".to_string(),
+        name: "test-route-id".to_string(),
         path: "/test".to_string(),
         cluster_name: "test-cluster".to_string(),
         prefix_rewrite: None,
@@ -206,7 +206,7 @@ async fn test_resource_deletion() {
 
     // Remove them
     store.remove_cluster(&cluster.name);
-    store.remove_route(&route.id);
+    store.remove_route(&route.name);
 
     // Verify they're gone
     assert_eq!(store.list_clusters().len(), 0);

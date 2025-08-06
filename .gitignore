@@ -15,11 +15,13 @@ envoy-bootstrap-tls.yaml
 # Claude
 .claude/
 
-# Security - Never commit certificates or private keys
+# Security - Never commit certificates, private keys, or environment files with secrets
 certs/
 *.crt
 *.key
 *.pem
+.env.local
+.env.production
 
 # Development and temporary files
 development-log.md

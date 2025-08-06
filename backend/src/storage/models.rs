@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
-use uuid::Uuid;
 
 /// Load balancing policy for clusters
 /// Hybrid approach: known policies as variants + Custom for flexibility
@@ -59,7 +58,7 @@ impl LoadBalancingPolicy {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Route {
-    pub id: String,
+    pub name: String,         // Primary identifier aligned with Envoy conventions
     pub path: String,
     pub cluster_name: String,
     pub prefix_rewrite: Option<String>,
@@ -80,9 +79,9 @@ pub struct Endpoint {
 }
 
 impl Route {
-    pub fn new(path: String, cluster_name: String, prefix_rewrite: Option<String>) -> Self {
+    pub fn new(name: String, path: String, cluster_name: String, prefix_rewrite: Option<String>) -> Self {
         Self {
-            id: Uuid::new_v4().to_string(),
+            name,
             path,
             cluster_name,
             prefix_rewrite,
@@ -91,13 +90,14 @@ impl Route {
     }
 
     pub fn with_methods(
+        name: String,
         path: String,
         cluster_name: String,
         prefix_rewrite: Option<String>,
         http_methods: Option<Vec<String>>,
     ) -> Self {
         Self {
-            id: Uuid::new_v4().to_string(),
+            name,
             path,
             cluster_name,
             prefix_rewrite,
@@ -107,6 +107,14 @@ impl Route {
 }
 
 impl Cluster {
+    pub fn new(name: String, endpoints: Vec<Endpoint>) -> Self {
+        Self {
+            name,
+            endpoints,
+            lb_policy: None, // No specific policy - will use system default
+        }
+    }
+
     pub fn with_lb_policy(
         name: String,
         endpoints: Vec<Endpoint>,

@@ -40,7 +40,7 @@ async fn test_version_increment_on_route_change() {
 
     // Add a route
     let route = Route {
-        id: "test-route-id".to_string(),
+        name: "test-route-id".to_string(),
         path: "/api/v1/test".to_string(),
         cluster_name: "test-cluster".to_string(),
         prefix_rewrite: Some("/test".to_string()),
@@ -185,7 +185,7 @@ async fn test_mixed_resource_operations() {
 
     // Add a route
     let route = Route {
-        id: "mixed-route".to_string(),
+        name: "mixed-route".to_string(),
         path: "/mixed".to_string(),
         cluster_name: "mixed-service".to_string(),
         prefix_rewrite: None,

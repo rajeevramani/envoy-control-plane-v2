@@ -89,14 +89,55 @@ build-release: backend-build-release frontend-build ## Build both backend and fr
 
 test-all: backend-test frontend-test e2e-full ## Run all tests including E2E
 
-dev: ## Start both backend and frontend in development mode (separate terminals needed)
+# Environment setup for development
+setup-dev-env: ## Set up development environment with default JWT secret
+	@echo "🔧 Setting up development environment..."
+	@if [ ! -f .env.local ]; then \
+		echo "JWT_SECRET=dev-secret-key-minimum-32-chars-required-for-security" > .env.local; \
+		echo "RUST_LOG=debug" >> .env.local; \
+		echo "✅ Created .env.local with development JWT_SECRET"; \
+	else \
+		echo "✅ .env.local already exists"; \
+	fi
+	@echo "⚠️  WARNING: Using development JWT secret. Set JWT_SECRET environment variable in production."
+
+dev: setup-dev-env ## Start both backend and frontend in development mode (separate terminals needed)
 	@echo "🚀 Starting development servers..."
 	@echo "📋 Run in separate terminals:"
 	@echo "   Terminal 1: make backend-dev"
 	@echo "   Terminal 2: make frontend-dev"
+	@echo ""
+	@echo "💡 TIP: Use 'make dev-concurrent' to start both in one terminal with background processes"
 
-backend-dev: ## Run backend in development mode
-	cd backend && RUST_LOG=debug cargo run --bin envoy-control-plane
+dev-concurrent: setup-dev-env ## Start both backend and frontend concurrently (single terminal)
+	@echo "🚀 Starting backend and frontend concurrently..."
+	@echo "📋 Backend will start on http://127.0.0.1:8080"
+	@echo "📋 Frontend will start on http://127.0.0.1:5173"
+	@echo "🛑 Press Ctrl+C to stop both services"
+	@trap 'kill %1 %2 2>/dev/null; exit' INT; \
+	make backend-dev & \
+	sleep 3 && make frontend-dev & \
+	wait
+
+backend-dev: setup-dev-env ## Run backend in development mode with JWT_SECRET
+	@echo "🔐 Starting backend with authentication enabled..."
+	@if [ -f .env.local ]; then \
+		set -a && . ./.env.local && set +a && \
+		cd backend && cargo run --bin envoy-control-plane; \
+	else \
+		echo "❌ .env.local not found. Run 'make setup-dev-env' first."; \
+		exit 1; \
+	fi
+
+backend-dev-no-auth: ## Run backend in development mode without authentication
+	@echo "⚠️  Starting backend with authentication DISABLED..."
+	cd backend && RUST_LOG=debug CONFIG_FILE=config.e2e.yaml cargo run --bin envoy-control-plane
+
+frontend-dev: frontend-install ## Start frontend dev server with proper CORS settings
+	@echo "🌐 Starting frontend development server..."
+	@echo "📋 Frontend available at: http://127.0.0.1:5173"
+	@echo "📋 Backend API at: http://127.0.0.1:8080"
+	cd frontend && npm run dev
 
 frontend-dev-only: ## Start only frontend dev server (assumes backend is running)
 	cd frontend && npm run dev
@@ -115,12 +156,25 @@ generate-certs: ## Generate TLS certificates for local development
 docker-build: ## Build Docker image
 	docker build -f backend/Dockerfile -t envoy-control-plane .
 
-docker-run: ## Run Docker container
-	docker run -p 8080:8080 -p 18000:18000 envoy-control-plane
+docker-run: ## Run Docker container (requires JWT_SECRET environment variable)
+	@if [ -z "$$JWT_SECRET" ]; then \
+		echo "❌ ERROR: JWT_SECRET environment variable is required for Docker deployment"; \
+		echo "💡 Set it with: export JWT_SECRET='your-secure-secret-key-here'"; \
+		exit 1; \
+	fi
+	docker run -p 8080:8080 -p 18000:18000 \
+		-e JWT_SECRET="$$JWT_SECRET" \
+		-e RUST_LOG=info \
+		envoy-control-plane
+
+docker-run-dev: ## Run Docker container with development settings
+	docker run -p 8080:8080 -p 18000:18000 \
+		-e JWT_SECRET=dev-secret-key-minimum-32-chars-required-for-security \
+		-e RUST_LOG=debug \
+		envoy-control-plane
 
 # Development servers (legacy aliases)
-run-dev: ## Run control plane in development mode (alias for backend-dev)
-	cd backend && RUST_LOG=debug cargo run --bin envoy-control-plane
+run-dev: backend-dev ## Run control plane in development mode (alias for backend-dev)
 
 run-envoy: ## Run Envoy with bootstrap config
 	envoy -c backend/envoy-bootstrap.yaml
@@ -146,8 +200,29 @@ health-check: ## Check control plane health
 	curl http://localhost:8080/health
 
 # Cleanup
-clean-all: clean clean-certs ## Clean everything including Docker images and certificates
+clean-all: clean clean-certs clean-env ## Clean everything including Docker images and certificates
 	docker rmi envoy-control-plane 2>/dev/null || true
+
+clean-env: ## Clean development environment files
+	@echo "🗑️  Cleaning development environment..."
+	@rm -f .env.local .env.test
+	@echo "✅ Environment files cleaned!"
+
+# Production deployment helpers
+check-prod-env: ## Check if production environment variables are set
+	@echo "🔍 Checking production environment..."
+	@if [ -z "$$JWT_SECRET" ]; then \
+		echo "❌ JWT_SECRET is not set"; \
+		exit 1; \
+	fi
+	@if [ $${#JWT_SECRET} -lt 32 ]; then \
+		echo "❌ JWT_SECRET must be at least 32 characters long"; \
+		exit 1; \
+	fi
+	@echo "✅ Production environment check passed"
+
+prod-setup: check-prod-env generate-certs ## Setup for production deployment
+	@echo "🚀 Production setup completed"
 
 # E2E Testing
 check-tls-config: ## Check if TLS is enabled in config.yaml (for local development)

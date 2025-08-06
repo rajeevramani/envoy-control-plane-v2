@@ -3,15 +3,30 @@ use axum::{
     response::Json,
 };
 use serde::{Deserialize, Serialize};
+use validator::Validate;
 
 use crate::api::errors::ApiError;
 use crate::api::routes::AppState;
 use crate::config::AppConfig;
 use crate::envoy::ConfigGenerator;
 use crate::storage::{Cluster, Endpoint, Route, LoadBalancingPolicy};
+use crate::validation::{
+    ValidatedCreateRouteRequest, ValidatedUpdateRouteRequest,
+    ValidatedCreateClusterRequest, ValidatedUpdateClusterRequest,
+};
+
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateRouteRequest {
+    pub name: String,
+    pub path: String,
+    pub cluster_name: String,
+    pub prefix_rewrite: Option<String>,
+    pub http_methods: Option<Vec<String>>, // GET, POST, PUT, DELETE, etc.
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateRouteRequest {
     pub path: String,
     pub cluster_name: String,
     pub prefix_rewrite: Option<String>,
@@ -29,14 +44,6 @@ pub struct CreateClusterRequest {
 pub struct UpdateClusterRequest {
     pub endpoints: Vec<CreateEndpointRequest>,
     pub lb_policy: Option<String>, // Optional: will use config default if None
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct UpdateRouteRequest {
-    pub path: String,
-    pub cluster_name: String,
-    pub prefix_rewrite: Option<String>,
-    pub http_methods: Option<Vec<String>>, // GET, POST, PUT, DELETE, etc.
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -74,84 +81,67 @@ impl<T> ApiResponse<T> {
 // Route handlers
 pub async fn create_route(
     State(app_state): State<AppState>,
-    Json(payload): Json<CreateRouteRequest>,
+    Json(payload): Json<ValidatedCreateRouteRequest>,
 ) -> Result<Json<ApiResponse<String>>, ApiError> {
-    // Load config to validate HTTP methods
-    let config = match AppConfig::load() {
-        Ok(cfg) => cfg,
-        Err(e) => return Err(ApiError::configuration(format!("Failed to load application configuration: {}", e))),
-    };
-
-    // Validate HTTP methods if provided
-    if let Some(ref methods) = payload.http_methods {
-        for method in methods {
-            if !is_valid_http_method(method, &config.control_plane.http_methods.supported_methods) {
-                return Err(ApiError::validation(format!(
-                    "Invalid HTTP method '{}'. Supported methods: {:?}", 
-                    method, 
-                    config.control_plane.http_methods.supported_methods
-                )));
-            }
-        }
+    // Validate the input
+    payload.validate()?;
+    
+    // Convert to internal type
+    let payload: CreateRouteRequest = payload.into();
+    
+    // Check for duplicate route names
+    if app_state.store.get_route(&payload.name).is_some() {
+        return Err(ApiError::validation(format!(
+            "Route with name '{}' already exists", 
+            payload.name
+        )));
     }
 
     let route = Route::with_methods(
+        payload.name.clone(),
         payload.path, 
         payload.cluster_name, 
         payload.prefix_rewrite,
         payload.http_methods
     );
-    let id = app_state.store.add_route(route);
+    let name = app_state.store.add_route(route);
 
     // Increment version to notify Envoy of the change
     app_state.xds_server.increment_version();
 
-    Ok(Json(ApiResponse::success(id, "Route created successfully")))
+    Ok(Json(ApiResponse::success(name, "Route created successfully")))
 }
 
 pub async fn update_route(
     State(app_state): State<AppState>,
-    Path(id): Path<String>,
-    Json(payload): Json<UpdateRouteRequest>,
+    Path(name): Path<String>,
+    Json(payload): Json<ValidatedUpdateRouteRequest>,
 ) -> Result<Json<ApiResponse<String>>, ApiError> {
+    // Validate the input
+    payload.validate()?;
+    
+    // Convert to internal type
+    let payload: UpdateRouteRequest = payload.into();
+    
     // Check if route exists
-    if app_state.store.get_route(&id).is_none() {
+    if app_state.store.get_route(&name).is_none() {
         return Err(ApiError::not_found("route".to_string()));
-    }
-
-    // Load config to validate HTTP methods
-    let config = match AppConfig::load() {
-        Ok(cfg) => cfg,
-        Err(e) => return Err(ApiError::configuration(format!("Failed to load application configuration: {}", e))),
-    };
-
-    // Validate HTTP methods if provided
-    if let Some(ref methods) = payload.http_methods {
-        for method in methods {
-            if !is_valid_http_method(method, &config.control_plane.http_methods.supported_methods) {
-                return Err(ApiError::validation(format!(
-                    "Invalid HTTP method '{}'. Supported methods: {:?}", 
-                    method, 
-                    config.control_plane.http_methods.supported_methods
-                )));
-            }
-        }
     }
 
     // Create updated route with the same ID
     let updated_route = Route {
-        id: id.clone(),
+        name: name.clone(),
         path: payload.path,
         cluster_name: payload.cluster_name,
         prefix_rewrite: payload.prefix_rewrite,
         http_methods: payload.http_methods,
     };
 
-    match app_state.store.update_route(&id, updated_route) {
+    match app_state.store.update_route(&name, updated_route) {
         Some(_) => {
             // Increment version to notify Envoy of the change
             app_state.xds_server.increment_version();
-            Ok(Json(ApiResponse::success(id, "Route updated successfully")))
+            Ok(Json(ApiResponse::success(name, "Route updated successfully")))
         }
         None => Err(ApiError::not_found("resource".to_string())),
     }
@@ -159,9 +149,9 @@ pub async fn update_route(
 
 pub async fn get_route(
     State(app_state): State<AppState>,
-    Path(id): Path<String>,
+    Path(name): Path<String>,
 ) -> Result<Json<ApiResponse<Route>>, ApiError> {
-    match app_state.store.get_route(&id) {
+    match app_state.store.get_route(&name) {
         Some(route) => Ok(Json(ApiResponse::success(route, "Route found"))),
         None => Err(ApiError::not_found("resource".to_string())),
     }
@@ -177,9 +167,9 @@ pub async fn list_routes(State(app_state): State<AppState>) -> Json<ApiResponse<
 
 pub async fn delete_route(
     State(app_state): State<AppState>,
-    Path(id): Path<String>,
+    Path(name): Path<String>,
 ) -> Result<Json<ApiResponse<()>>, ApiError> {
-    match app_state.store.remove_route(&id) {
+    match app_state.store.remove_route(&name) {
         Some(_) => {
             // Increment version to notify Envoy of the deletion
             app_state.xds_server.increment_version();
@@ -192,11 +182,13 @@ pub async fn delete_route(
 // Cluster handlers
 pub async fn create_cluster(
     State(app_state): State<AppState>,
-    Json(payload): Json<CreateClusterRequest>,
+    Json(payload): Json<ValidatedCreateClusterRequest>,
 ) -> Result<Json<ApiResponse<String>>, ApiError> {
-    // Load config to validate lb_policy
-    let config = AppConfig::load()
-        .map_err(|e| ApiError::configuration(format!("Failed to load application configuration: {}", e)))?;
+    // Validate the input
+    payload.validate()?;
+    
+    // Convert to internal type
+    let payload: CreateClusterRequest = payload.into();
 
     // Convert endpoints
     let endpoints: Vec<Endpoint> = payload
@@ -205,34 +197,16 @@ pub async fn create_cluster(
         .map(|e| Endpoint::new(e.host, e.port))
         .collect();
 
-    // Handle load balancing policy
+    // Handle load balancing policy - validation already done in validation layer
     let cluster = match payload.lb_policy {
         Some(policy_str) => {
-            // Validate policy against available_policies registry
-            if !config
-                .control_plane
-                .load_balancing
-                .available_policies
-                .contains(&policy_str)
-            {
-                return Err(ApiError::validation(format!(
-                    "Invalid load balancing policy '{}'. Available policies: {:?}",
-                    policy_str, config.control_plane.load_balancing.available_policies
-                )));
-            }
-
-            // Convert string to enum and create cluster
-            let lb_policy = LoadBalancingPolicy::parse_safe(&policy_str, "create_cluster request")
-                .map_err(ApiError::parse)?;
+            let lb_policy = policy_str.parse::<LoadBalancingPolicy>()
+                .map_err(|_| ApiError::validation(format!("Invalid load balancing policy: {}", policy_str)))?;
             Cluster::with_lb_policy(payload.name, endpoints, lb_policy)
         }
         None => {
-            // No policy specified - use default from config
-            let default_policy = LoadBalancingPolicy::parse_safe(
-                &config.control_plane.load_balancing.default_policy,
-                "default load balancing policy from config"
-            ).map_err(ApiError::configuration)?;
-            Cluster::with_lb_policy(payload.name, endpoints, default_policy)
+            // No policy specified - use cluster with no specific policy (will use system default)
+            Cluster::new(payload.name, endpoints)
         }
     };
 
@@ -285,16 +259,18 @@ pub async fn delete_cluster(
 pub async fn update_cluster(
     State(app_state): State<AppState>,
     Path(name): Path<String>,
-    Json(payload): Json<UpdateClusterRequest>,
+    Json(payload): Json<ValidatedUpdateClusterRequest>,
 ) -> Result<Json<ApiResponse<String>>, ApiError> {
+    // Validate the input
+    payload.validate()?;
+    
     // Check if cluster exists
     if app_state.store.get_cluster(&name).is_none() {
         return Err(ApiError::not_found(format!("cluster '{}'", name)));
     }
-
-    // Load config to validate lb_policy
-    let config = AppConfig::load()
-        .map_err(|e| ApiError::configuration(format!("Failed to load application configuration: {}", e)))?;
+    
+    // Convert to internal type
+    let payload: UpdateClusterRequest = payload.into();
 
     // Convert endpoints
     let endpoints: Vec<Endpoint> = payload
@@ -303,34 +279,16 @@ pub async fn update_cluster(
         .map(|e| Endpoint::new(e.host, e.port))
         .collect();
 
-    // Handle load balancing policy
+    // Handle load balancing policy - validation already done in validation layer
     let cluster = match payload.lb_policy {
         Some(policy_str) => {
-            // Validate policy against available_policies registry
-            if !config
-                .control_plane
-                .load_balancing
-                .available_policies
-                .contains(&policy_str)
-            {
-                return Err(ApiError::validation(format!(
-                    "Invalid load balancing policy '{}'. Available policies: {:?}",
-                    policy_str, config.control_plane.load_balancing.available_policies
-                )));
-            }
-
-            // Convert string to enum and create cluster
-            let lb_policy = LoadBalancingPolicy::parse_safe(&policy_str, "update_cluster request")
-                .map_err(ApiError::parse)?;
+            let lb_policy = policy_str.parse::<LoadBalancingPolicy>()
+                .map_err(|_| ApiError::validation(format!("Invalid load balancing policy: {}", policy_str)))?;
             Cluster::with_lb_policy(name.clone(), endpoints, lb_policy)
         }
         None => {
-            // No policy specified - use default from config
-            let default_policy = LoadBalancingPolicy::parse_safe(
-                &config.control_plane.load_balancing.default_policy,
-                "default load balancing policy from config"
-            ).map_err(ApiError::configuration)?;
-            Cluster::with_lb_policy(name.clone(), endpoints, default_policy)
+            // No policy specified - use cluster with no specific policy (will use system default)
+            Cluster::new(name.clone(), endpoints)
         }
     };
 

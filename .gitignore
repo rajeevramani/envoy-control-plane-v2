@@ -11,6 +11,7 @@ tests/e2e/envoy-bootstrap-plain.yaml
 .env.test
 envoy-bootstrap-tls.yaml
 password.txt
+outdated.txt
 
 
 # Claude

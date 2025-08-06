@@ -7,7 +7,7 @@ edition = "2021"
 # Web server framework
 axum = "0.8.4"                # Latest stable Axum
 axum-extra = { version = "0.10.1", features = ["typed-header", "cookie"] }  # For JWT and cookie support
-tokio = { version = "1.46", features = ["full"] }
+tokio = { version = "1.47", features = ["full"] }
 tokio-stream = "0.1.17"
 tower = "0.5"
 tower-http = { version = "0.5", features = ["cors", "trace"] }
@@ -21,7 +21,7 @@ serde_yaml = "0.9"
 dashmap = "5.5"
 
 # HTTP client (for testing)
-reqwest = { version = "0.11", features = ["json"] }
+reqwest = { version = "0.12", features = ["json"] }
 
 # Logging
 tracing = "0.1"
@@ -29,10 +29,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Error handling
 anyhow = "1.0"
-thiserror = "1.0"
+thiserror = "2.0"
 
 # Configuration
-config = "0.14"
+config = "0.15"
 
 # UUID generation
 uuid = { version = "1.0", features = ["v4", "serde"] }
@@ -42,12 +42,12 @@ jsonwebtoken = "9.3.1"           # JWT creation & validation
 casbin = "2.10.1"                # RBAC authorization system  
 chrono = { version = "0.4.41", features = ["serde"] }  # Time handling
 time = "0.3.41"  # For cookie max_age - latest stable
-bcrypt = "0.15"                  # Password hashing
+bcrypt = "0.17"                  # Password hashing
 async-trait = "0.1.88"          # For async traits
 rand = "0.8"                     # For secure secret generation
 
 # Input Validation & Security
-validator = { version = "0.18.0", features = ["derive"] }  # Derive-based input validation
+validator = { version = "0.20.0", features = ["derive"] }  # Derive-based input validation
 regex = "1.10.0"                 # Pattern matching for input sanitization
 lazy_static = "1.4.0"           # Static regex compilation for performance
 
@@ -63,7 +63,7 @@ envoy-types = "0.6.0"
 [dev-dependencies]
 # Testing
 tokio-test = "0.4"
-reqwest = { version = "0.11", features = ["json"] }
+reqwest = { version = "0.12", features = ["json"] }
 tower-test = "0.4"
 serial_test = "3.0"
 tempfile = "3.0"  # For creating temporary test files

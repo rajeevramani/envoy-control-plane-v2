@@ -1,9 +1,9 @@
 #![allow(clippy::uninlined_format_args)]
 
 use axum::body::Body;
-use axum::http::{Request, StatusCode, HeaderValue};
+use axum::http::{Request, StatusCode};
 use axum::Router;
-use serde_json::{json, Value};
+use serde_json::json;
 use tower::ServiceExt;
 
 use envoy_control_plane::api::routes::create_router;
@@ -54,13 +54,63 @@ async fn create_auth_disabled_app() -> (Router, ConfigStore) {
     (app, store)
 }
 
-/// Helper to extract JWT token from login response
-fn extract_token_from_response(body: &str) -> String {
-    let response: Value = serde_json::from_str(body).expect("Invalid JSON response");
-    response["data"]["token"]
-        .as_str()
-        .expect("No token in response")
-        .to_string()
+/// Helper to extract auth cookie value from login response headers
+fn extract_auth_cookie_from_response(response: &axum::http::Response<axum::body::Body>) -> Option<String> {
+    response.headers()
+        .get("set-cookie")
+        .and_then(|cookie| cookie.to_str().ok())
+        .and_then(|cookie_str| {
+            if cookie_str.contains("auth_token=") {
+                // Extract just the cookie value (JWT token) from "auth_token=<jwt_token>; HttpOnly; ..."
+                cookie_str.split(';')
+                    .find(|part| part.trim().starts_with("auth_token="))
+                    .and_then(|part| {
+                        // Split on = and get the value part
+                        part.split('=').nth(1).map(|s| s.trim().to_string())
+                    })
+            } else {
+                None
+            }
+        })
+}
+
+/// Helper to perform login and get auth cookie for tests
+async fn login_and_get_cookie(app: axum::Router, username: &str, password: &str) -> Result<String, String> {
+    let login_data = json!({
+        "username": username,
+        "password": password
+    });
+
+    let login_response = app
+        .oneshot(
+            Request::builder()
+                .uri("/auth/login")
+                .method("POST")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(login_data.to_string()))
+                .unwrap(),
+        )
+        .await
+        .map_err(|e| format!("Login request failed: {}", e))?;
+
+    if login_response.status() != StatusCode::OK {
+        return Err(format!("Login failed with status: {}", login_response.status()));
+    }
+
+    // Extract the auth cookie value (JWT token)
+    extract_auth_cookie_from_response(&login_response)
+        .ok_or_else(|| "No auth cookie found in login response".to_string())
+}
+
+/// Helper to create request with auth cookie
+fn create_authenticated_request(method: &str, uri: &str, auth_cookie: &str, body: axum::body::Body) -> Request<axum::body::Body> {
+    Request::builder()
+        .method(method)
+        .uri(uri)
+        .header("content-type", "application/json")
+        .header("cookie", format!("auth_token={}", auth_cookie))
+        .body(body)
+        .unwrap()
 }
 
 // ===========================================
@@ -153,15 +203,17 @@ async fn test_login_with_valid_credentials() {
         .unwrap();
     let body_str = std::str::from_utf8(&body).unwrap();
     
-    // Should return success with JWT token
+    // Should return success with user info (token is now in httpOnly cookie)
     assert!(body_str.contains("success"));
-    assert!(body_str.contains("token"));
     assert!(body_str.contains("admin"));
     assert!(body_str.contains("expires_in"));
+    assert!(body_str.contains("secure cookie"));
     
-    // Token should have 3 parts (header.payload.signature)
-    let token = extract_token_from_response(body_str);
-    assert_eq!(token.matches('.').count(), 2);
+    // With httpOnly cookies, the token field should be empty for security
+    let response: serde_json::Value = serde_json::from_str(body_str).unwrap();
+    assert_eq!(response["data"]["token"].as_str().unwrap(), "");
+    assert_eq!(response["data"]["user_id"].as_str().unwrap(), "admin");
+    assert_eq!(response["data"]["username"].as_str().unwrap(), "admin");
 }
 
 #[tokio::test]
@@ -337,49 +389,25 @@ async fn test_protected_route_with_invalid_token() {
 async fn test_protected_route_with_valid_admin_token() {
     let (app, _store) = create_auth_enabled_app().await;
 
-    // First, login to get a token
-    let login_data = json!({
-        "username": "admin",
-        "password": "secure-admin-123"
-    });
-
-    let login_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/auth/login")
-                .method("POST")
-                .header("content-type", "application/json")
-                .body(Body::from(login_data.to_string()))
-                .unwrap(),
-        )
+    // First, login to get auth cookie
+    let auth_cookie = login_and_get_cookie(app.clone(), "admin", "secure-admin-123")
         .await
-        .unwrap();
+        .expect("Failed to login and get auth cookie");
 
-    assert_eq!(login_response.status(), StatusCode::OK);
-
-    let login_body = axum::body::to_bytes(login_response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let login_body_str = std::str::from_utf8(&login_body).unwrap();
-    let token = extract_token_from_response(login_body_str);
-
-    // Now try to create a route with the token
+    // Now try to create a route with the auth cookie
     let route_data = json!({
+        "name": "api-test-route",
         "path": "/api/test",
         "cluster_name": "test-cluster"
     });
 
     let response = app
-        .oneshot(
-            Request::builder()
-                .uri("/routes")
-                .method("POST")
-                .header("content-type", "application/json")
-                .header("authorization", format!("Bearer {}", token))
-                .body(Body::from(route_data.to_string()))
-                .unwrap(),
-        )
+        .oneshot(create_authenticated_request(
+            "POST",
+            "/routes",
+            &auth_cookie,
+            Body::from(route_data.to_string())
+        ))
         .await
         .unwrap();
 
@@ -398,47 +426,25 @@ async fn test_protected_route_with_valid_admin_token() {
 async fn test_user_cannot_create_routes() {
     let (app, _store) = create_auth_enabled_app().await;
 
-    // Login as regular user
-    let login_data = json!({
-        "username": "user",
-        "password": "secure-user-456"
-    });
-
-    let login_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/auth/login")
-                .method("POST")
-                .header("content-type", "application/json")
-                .body(Body::from(login_data.to_string()))
-                .unwrap(),
-        )
+    // Login as regular user to get auth cookie
+    let auth_cookie = login_and_get_cookie(app.clone(), "user", "secure-user-456")
         .await
-        .unwrap();
-
-    let login_body = axum::body::to_bytes(login_response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let login_body_str = std::str::from_utf8(&login_body).unwrap();
-    let token = extract_token_from_response(login_body_str);
+        .expect("Failed to login and get auth cookie");
 
     // Try to create a route (should be forbidden for regular user)
     let route_data = json!({
+        "name": "forbidden-route",
         "path": "/api/forbidden",
         "cluster_name": "test-cluster"
     });
 
     let response = app
-        .oneshot(
-            Request::builder()
-                .uri("/routes")
-                .method("POST")
-                .header("content-type", "application/json")
-                .header("authorization", format!("Bearer {}", token))
-                .body(Body::from(route_data.to_string()))
-                .unwrap(),
-        )
+        .oneshot(create_authenticated_request(
+            "POST",
+            "/routes",
+            &auth_cookie,
+            Body::from(route_data.to_string())
+        ))
         .await
         .unwrap();
 
@@ -518,38 +524,17 @@ async fn test_read_routes_work_with_and_without_auth() {
     assert!(body_str.contains("test-route-id"));
 
     // Now test with authentication (should also work)
-    let login_data = json!({
-        "username": "user",
-        "password": "secure-user-456"
-    });
-
-    let login_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/auth/login")
-                .method("POST")
-                .header("content-type", "application/json")
-                .body(Body::from(login_data.to_string()))
-                .unwrap(),
-        )
+    let auth_cookie = login_and_get_cookie(app.clone(), "user", "secure-user-456")
         .await
-        .unwrap();
-
-    let login_body = axum::body::to_bytes(login_response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let login_body_str = std::str::from_utf8(&login_body).unwrap();
-    let token = extract_token_from_response(login_body_str);
+        .expect("Failed to login and get auth cookie");
 
     let response_with_auth = app
-        .oneshot(
-            Request::builder()
-                .uri("/routes")
-                .header("authorization", format!("Bearer {}", token))
-                .body(Body::empty())
-                .unwrap(),
-        )
+        .oneshot(create_authenticated_request(
+            "GET",
+            "/routes",
+            &auth_cookie,
+            Body::empty()
+        ))
         .await
         .unwrap();
 
@@ -564,40 +549,19 @@ async fn test_read_routes_work_with_and_without_auth() {
 async fn test_get_user_info_with_valid_token() {
     let (app, _store) = create_auth_enabled_app().await;
 
-    // Login first
-    let login_data = json!({
-        "username": "admin",
-        "password": "secure-admin-123"
-    });
-
-    let login_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/auth/login")
-                .method("POST")
-                .header("content-type", "application/json")
-                .body(Body::from(login_data.to_string()))
-                .unwrap(),
-        )
+    // Login first to get auth cookie
+    let auth_cookie = login_and_get_cookie(app.clone(), "admin", "secure-admin-123")
         .await
-        .unwrap();
+        .expect("Failed to login and get auth cookie");
 
-    let login_body = axum::body::to_bytes(login_response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let login_body_str = std::str::from_utf8(&login_body).unwrap();
-    let token = extract_token_from_response(login_body_str);
-
-    // Get user info
+    // Get user info using auth cookie
     let response = app
-        .oneshot(
-            Request::builder()
-                .uri("/auth/me")
-                .header("authorization", format!("Bearer {}", token))
-                .body(Body::empty())
-                .unwrap(),
-        )
+        .oneshot(create_authenticated_request(
+            "GET",
+            "/auth/me",
+            &auth_cookie,
+            Body::empty()
+        ))
         .await
         .unwrap();
 

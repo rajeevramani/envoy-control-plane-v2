@@ -10,7 +10,7 @@ interface Cluster {
 }
 
 interface Route {
-  id: string
+  name: string
   path: string
   cluster_name: string
   prefix_rewrite?: string
@@ -164,26 +164,26 @@ class ApiClient {
     return this.request<Route[]>('/routes')
   }
 
-  async getRoute(id: string): Promise<Route> {
-    return this.request<Route>(`/routes/${id}`)
+  async getRoute(name: string): Promise<Route> {
+    return this.request<Route>(`/routes/${name}`)
   }
 
-  async createRoute(route: Omit<Route, 'id'>): Promise<string> {
+  async createRoute(route: Omit<Route, 'name'> & { name: string }): Promise<string> {
     return this.request<string>('/routes', {
       method: 'POST',
       body: JSON.stringify(route),
     })
   }
 
-  async updateRoute(id: string, route: Omit<Route, 'id'>): Promise<string> {
-    return this.request<string>(`/routes/${id}`, {
+  async updateRoute(name: string, route: Omit<Route, 'name'>): Promise<string> {
+    return this.request<string>(`/routes/${name}`, {
       method: 'PUT',
       body: JSON.stringify(route),
     })
   }
 
-  async deleteRoute(id: string): Promise<void> {
-    await this.request<void>(`/routes/${id}`, {
+  async deleteRoute(name: string): Promise<void> {
+    await this.request<void>(`/routes/${name}`, {
       method: 'DELETE',
     })
   }

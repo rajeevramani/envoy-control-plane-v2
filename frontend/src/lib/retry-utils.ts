@@ -16,7 +16,7 @@ export async function withRetry<T>(
 ): Promise<T> {
   const { maxAttempts, baseDelay, maxDelay } = { ...DEFAULT_RETRY_OPTIONS, ...options }
   
-  let lastError: Error
+  let lastError: Error = new Error('Max retry attempts reached')
   
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {

@@ -10,6 +10,7 @@ tests/e2e/envoy-bootstrap-tls.yaml
 tests/e2e/envoy-bootstrap-plain.yaml
 .env.test
 envoy-bootstrap-tls.yaml
+password.txt
 
 
 # Claude

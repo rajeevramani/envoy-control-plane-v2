@@ -3,6 +3,7 @@ use crate::storage::models::{
 };
 use prost::Message;
 use prost_types::Any;
+use tracing::{info, warn};
 
 // Import actual Envoy protobuf types
 use envoy_types::pb::envoy::config::cluster::v3::Cluster;
@@ -33,7 +34,7 @@ impl ProtoConverter {
             LoadBalancingPolicy::Custom(policy_name) => {
                 // For custom policies, we'll need to handle them specially
                 // For now, log a warning and fall back to RoundRobin
-                println!("⚠️  Custom policy '{policy_name}' not directly supported in protobuf enum, using RoundRobin");
+                warn!("Custom policy '{}' not directly supported in protobuf enum, using RoundRobin", policy_name);
                 LbPolicy::RoundRobin as i32
             }
         }
@@ -51,14 +52,14 @@ impl ProtoConverter {
         // Load config for naming settings
         let app_config = crate::config::AppConfig::load()?;
 
-        println!(
-            "✅ Routes conversion: Creating RouteConfiguration with {} routes",
+        info!(
+            "Routes conversion: Creating RouteConfiguration with {} routes",
             routes.len()
         );
 
         // Create routes following the Go control plane pattern
         let proto_routes: Vec<Route> = routes.into_iter().map(|route| {
-            println!("  - Route: {} -> {}", route.path, route.cluster_name);
+            info!("  - Route: {} -> {}", route.path, route.cluster_name);
 
             // Create header matchers for HTTP methods if specified
             let headers = if let Some(ref methods) = route.http_methods {
@@ -126,7 +127,7 @@ impl ProtoConverter {
         let mut buf = Vec::new();
         route_config.encode(&mut buf)?;
 
-        println!("✅ Routes conversion: Encoded {} bytes", buf.len());
+        info!("Routes conversion: Encoded {} bytes", buf.len());
 
         Ok(vec![Any {
             type_url: "type.googleapis.com/envoy.config.route.v3.RouteConfiguration".to_string(),
@@ -144,8 +145,8 @@ impl ProtoConverter {
         // Load config for timeout settings
         let app_config = crate::config::AppConfig::load()?;
 
-        println!(
-            "✅ Clusters conversion: Creating {} clusters",
+        info!(
+            "Clusters conversion: Creating {} clusters",
             clusters.len()
         );
 
@@ -153,7 +154,7 @@ impl ProtoConverter {
 
         for cluster in clusters {
             let cluster_name = cluster.name.clone(); // Clone before moving
-            println!(
+            info!(
                 "  - Cluster: {} ({} endpoints)",
                 cluster_name,
                 cluster.endpoints.len()
@@ -161,7 +162,7 @@ impl ProtoConverter {
 
             // Create endpoints following the Go control plane pattern
             let lb_endpoints: Vec<LbEndpoint> = cluster.endpoints.into_iter().map(|endpoint| {
-                println!("    - Endpoint: {}:{}", endpoint.host, endpoint.port);
+                info!("    - Endpoint: {}:{}", endpoint.host, endpoint.port);
 
                 LbEndpoint {
                     host_identifier: Some(envoy_types::pb::envoy::config::endpoint::v3::lb_endpoint::HostIdentifier::Endpoint(
@@ -215,8 +216,8 @@ impl ProtoConverter {
             let mut buf = Vec::new();
             proto_cluster.encode(&mut buf)?;
 
-            println!(
-                "✅ Cluster conversion: Encoded {} bytes for {}",
+            info!(
+                "Cluster conversion: Encoded {} bytes for {}",
                 buf.len(),
                 cluster_name
             );
@@ -249,7 +250,7 @@ impl ProtoConverter {
             // For other types (listeners, endpoints, etc.) return empty for now
             // This matches the Go control plane pattern where unsupported types return empty
             _ => {
-                println!("ℹ️  Unsupported resource type: {type_url}");
+                info!("Unsupported resource type: {type_url}");
                 Ok(vec![])
             }
         }
@@ -263,7 +264,7 @@ impl ProtoConverter {
             "V6_ONLY" => DnsLookupFamily::V6Only as i32,
             "AUTO" => DnsLookupFamily::Auto as i32,
             _ => {
-                println!("⚠️  Unknown DNS lookup family '{dns_family}', defaulting to V4_ONLY");
+                warn!("Unknown DNS lookup family '{}', defaulting to V4_ONLY", dns_family);
                 DnsLookupFamily::V4Only as i32
             }
         }
@@ -276,7 +277,7 @@ impl ProtoConverter {
             "TCP" => Protocol::Tcp as i32,
             "UDP" => Protocol::Udp as i32,
             _ => {
-                println!("⚠️  Unknown protocol '{protocol}', defaulting to TCP");
+                warn!("Unknown protocol '{}', defaulting to TCP", protocol);
                 Protocol::Tcp as i32
             }
         }

@@ -2,9 +2,117 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Json, Response},
 };
+use serde::Serialize;
 use serde_json::json;
+use std::collections::HashMap;
 use thiserror::Error;
+use tracing::{error, debug};
+use uuid::Uuid;
 use validator::ValidationErrors;
+
+/// Request context for error correlation and debugging
+#[derive(Debug, Clone, Serialize)]
+pub struct RequestContext {
+    pub correlation_id: String,
+    pub method: String,
+    pub path: String,
+    pub user_id: Option<String>,
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub client_ip: Option<std::net::IpAddr>,
+}
+
+impl RequestContext {
+    pub fn new(method: String, path: String) -> Self {
+        Self {
+            correlation_id: Uuid::new_v4().to_string(),
+            method,
+            path,
+            user_id: None,
+            timestamp: chrono::Utc::now(),
+            client_ip: None,
+        }
+    }
+    
+    pub fn with_user(mut self, user_id: impl Into<String>) -> Self {
+        self.user_id = Some(user_id.into());
+        self
+    }
+    
+    pub fn with_client_ip(mut self, client_ip: std::net::IpAddr) -> Self {
+        self.client_ip = Some(client_ip);
+        self
+    }
+}
+
+/// Enhanced error context for debugging and tracing
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct ErrorContext {
+    pub request: Option<RequestContext>,
+    pub operation: Option<String>,
+    pub resource: Option<String>,
+    pub component: Option<String>,
+    pub additional: HashMap<String, String>,
+}
+
+impl ErrorContext {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    
+    pub fn with_request(mut self, request: RequestContext) -> Self {
+        self.request = Some(request);
+        self
+    }
+    
+    pub fn with_operation(mut self, operation: impl Into<String>) -> Self {
+        self.operation = Some(operation.into());
+        self
+    }
+    
+    pub fn with_resource(mut self, resource: impl Into<String>) -> Self {
+        self.resource = Some(resource.into());
+        self
+    }
+    
+    pub fn with_component(mut self, component: impl Into<String>) -> Self {
+        self.component = Some(component.into());
+        self
+    }
+    
+    pub fn with_metadata(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.additional.insert(key.into(), value.into());
+        self
+    }
+    
+    pub fn correlation_id(&self) -> Option<&str> {
+        self.request.as_ref().map(|r| r.correlation_id.as_str())
+    }
+}
+
+/// Error response format with optional debug information
+#[derive(Debug, Serialize)]
+pub struct ErrorResponse {
+    pub success: bool,
+    pub error: ErrorDetail,
+    pub request_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub debug_info: Option<DebugInfo>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ErrorDetail {
+    pub code: String,
+    pub message: String,
+    pub category: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DebugInfo {
+    pub error_chain: Vec<String>,
+    pub context: ErrorContext,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stack_trace: Option<String>,
+}
 
 /// Comprehensive error types for the API layer
 #[derive(Error, Debug)]
@@ -151,12 +259,12 @@ impl From<ValidationErrors> for ApiError {
 }
 
 /// Helper trait for adding context to errors
-pub trait ErrorContext<T> {
+pub trait ErrorContextExt<T> {
     /// Add context to any error result
     fn with_context(self, context: &str) -> Result<T, ApiError>;
 }
 
-impl<T, E: Into<ApiError>> ErrorContext<T> for Result<T, E> {
+impl<T, E: Into<ApiError>> ErrorContextExt<T> for Result<T, E> {
     fn with_context(self, context: &str) -> Result<T, ApiError> {
         self.map_err(|e| {
             let mut error = e.into();

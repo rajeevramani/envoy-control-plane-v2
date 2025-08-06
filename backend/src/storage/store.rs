@@ -25,9 +25,9 @@ impl ConfigStore {
 
     // Route operations
     pub fn add_route(&self, route: Route) -> String {
-        let id = route.id.clone();
-        self.routes.insert(id.clone(), route);
-        id
+        let name = route.name.clone();
+        self.routes.insert(name.clone(), route);
+        name
     }
 
     pub fn get_route(&self, id: &str) -> Option<Route> {

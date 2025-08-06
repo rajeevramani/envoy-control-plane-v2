@@ -198,21 +198,21 @@ async fn test_delete_route() {
 
     // Create a route first
     let route = Route {
-        id: uuid::Uuid::new_v4().to_string(),
+        name: uuid::Uuid::new_v4().to_string(),
         path: "/test".to_string(),
         cluster_name: "test-cluster".to_string(),
         prefix_rewrite: Some("/test".to_string()),
         http_methods: None,
     };
 
-    let route_id = route.id.clone();
+    let route_name = route.name.clone();
     store.add_route(route);
 
     // Delete the route
     let response = app
         .oneshot(
             Request::builder()
-                .uri(format!("/routes/{}", route_id))
+                .uri(format!("/routes/{}", route_name))
                 .method("DELETE")
                 .body(Body::empty())
                 .unwrap(),
@@ -739,14 +739,14 @@ async fn test_update_route_with_http_methods() {
 
     // Create initial route
     let route = Route {
-        id: uuid::Uuid::new_v4().to_string(),
+        name: uuid::Uuid::new_v4().to_string(),
         path: "/api/users".to_string(),
         cluster_name: "user-service".to_string(),
         prefix_rewrite: None,
         http_methods: Some(vec!["GET".to_string()]),
     };
 
-    let route_id = route.id.clone();
+    let route_name = route.name.clone();
     store.add_route(route);
 
     // Update route with different HTTP methods
@@ -759,7 +759,7 @@ async fn test_update_route_with_http_methods() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri(format!("/routes/{}", route_id))
+                .uri(format!("/routes/{}", route_name))
                 .method("PUT")
                 .header("content-type", "application/json")
                 .body(Body::from(update_data.to_string()))
@@ -778,7 +778,7 @@ async fn test_update_route_with_http_methods() {
     assert!(body_str.contains("Route updated successfully"));
 
     // Verify the route was actually updated in storage
-    let updated_route = store.get_route(&route_id).unwrap();
+    let updated_route = store.get_route(&route_name).unwrap();
     assert_eq!(updated_route.http_methods, Some(vec!["GET".to_string(), "POST".to_string(), "PUT".to_string()]));
 }
 
@@ -788,14 +788,14 @@ async fn test_update_route_remove_http_methods() {
 
     // Create initial route with HTTP methods
     let route = Route {
-        id: uuid::Uuid::new_v4().to_string(),
+        name: uuid::Uuid::new_v4().to_string(),
         path: "/api/data".to_string(),
         cluster_name: "data-service".to_string(),
         prefix_rewrite: Some("/v1/data".to_string()),
         http_methods: Some(vec!["GET".to_string(), "POST".to_string()]),
     };
 
-    let route_id = route.id.clone();
+    let route_name = route.name.clone();
     store.add_route(route);
 
     // Update route to remove HTTP methods (accept all methods)
@@ -808,7 +808,7 @@ async fn test_update_route_remove_http_methods() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri(format!("/routes/{}", route_id))
+                .uri(format!("/routes/{}", route_name))
                 .method("PUT")
                 .header("content-type", "application/json")
                 .body(Body::from(update_data.to_string()))
@@ -820,7 +820,7 @@ async fn test_update_route_remove_http_methods() {
     assert_eq!(response.status(), StatusCode::OK);
 
     // Verify the route HTTP methods were removed
-    let updated_route = store.get_route(&route_id).unwrap();
+    let updated_route = store.get_route(&route_name).unwrap();
     assert_eq!(updated_route.http_methods, None);
 }
 
@@ -830,14 +830,14 @@ async fn test_update_route_with_invalid_http_method() {
 
     // Create initial route
     let route = Route {
-        id: uuid::Uuid::new_v4().to_string(),
+        name: uuid::Uuid::new_v4().to_string(),
         path: "/api/test".to_string(),
         cluster_name: "test-service".to_string(),
         prefix_rewrite: None,
         http_methods: Some(vec!["GET".to_string()]),
     };
 
-    let route_id = route.id.clone();
+    let route_name = route.name.clone();
     store.add_route(route);
 
     // Try to update with invalid HTTP method
@@ -850,7 +850,7 @@ async fn test_update_route_with_invalid_http_method() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri(format!("/routes/{}", route_id))
+                .uri(format!("/routes/{}", route_name))
                 .method("PUT")
                 .header("content-type", "application/json")
                 .body(Body::from(update_data.to_string()))
@@ -869,7 +869,7 @@ async fn test_update_route_with_invalid_http_method() {
     assert!(body_str.contains("INVALID_METHOD"));
 
     // Verify the route was not updated
-    let unchanged_route = store.get_route(&route_id).unwrap();
+    let unchanged_route = store.get_route(&route_name).unwrap();
     assert_eq!(unchanged_route.http_methods, Some(vec!["GET".to_string()]));
 }
 
@@ -877,7 +877,7 @@ async fn test_update_route_with_invalid_http_method() {
 async fn test_update_nonexistent_route() {
     let (app, _store) = create_test_app().await;
 
-    let fake_route_id = uuid::Uuid::new_v4().to_string();
+    let fake_route_name = uuid::Uuid::new_v4().to_string();
     let update_data = json!({
         "path": "/api/fake",
         "cluster_name": "fake-service"
@@ -886,7 +886,7 @@ async fn test_update_nonexistent_route() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri(format!("/routes/{}", fake_route_id))
+                .uri(format!("/routes/{}", fake_route_name))
                 .method("PUT")
                 .header("content-type", "application/json")
                 .body(Body::from(update_data.to_string()))
@@ -904,14 +904,14 @@ async fn test_update_route_change_cluster_and_path() {
 
     // Create initial route
     let route = Route {
-        id: uuid::Uuid::new_v4().to_string(),
+        name: uuid::Uuid::new_v4().to_string(),
         path: "/api/old".to_string(),
         cluster_name: "old-service".to_string(),
         prefix_rewrite: Some("/old".to_string()),
         http_methods: Some(vec!["GET".to_string()]),
     };
 
-    let route_id = route.id.clone();
+    let route_name = route.name.clone();
     store.add_route(route);
 
     // Update route with new path, cluster, and methods
@@ -925,7 +925,7 @@ async fn test_update_route_change_cluster_and_path() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri(format!("/routes/{}", route_id))
+                .uri(format!("/routes/{}", route_name))
                 .method("PUT")
                 .header("content-type", "application/json")
                 .body(Body::from(update_data.to_string()))
@@ -937,11 +937,11 @@ async fn test_update_route_change_cluster_and_path() {
     assert_eq!(response.status(), StatusCode::OK);
 
     // Verify all fields were updated
-    let updated_route = store.get_route(&route_id).unwrap();
+    let updated_route = store.get_route(&route_name).unwrap();
     assert_eq!(updated_route.path, "/api/new");
     assert_eq!(updated_route.cluster_name, "new-service");
     assert_eq!(updated_route.prefix_rewrite, Some("/new".to_string()));
     assert_eq!(updated_route.http_methods, Some(vec!["GET".to_string(), "POST".to_string(), "DELETE".to_string()]));
     // Ensure the ID remains the same
-    assert_eq!(updated_route.id, route_id);
+    assert_eq!(updated_route.name, route_name);
 }

@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback, useMemo } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react'
+import type { ReactNode } from 'react'
 import { apiClient } from './api-client'
 
 interface User {
@@ -31,7 +32,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const login = useCallback(async (username: string, password: string) => {
     try {
-      const loginResponse = await apiClient.login({ username, password })
+      await apiClient.login({ username, password })
       
       // Get user info after successful login
       const userInfo = await apiClient.getCurrentUser()

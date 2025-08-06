@@ -92,7 +92,7 @@ async fn e2e_test_invalid_lb_policy() {
 
     let error = result.unwrap_err();
     assert!(
-        error.contains("Invalid load balancing policy"),
+        error.contains("invalid_lb_policy") || error.contains("Invalid load balancing policy") || error.contains("invalid load balancing policy"),
         "Error should mention invalid policy: {}",
         error
     );
@@ -392,7 +392,9 @@ async fn create_cluster_with_lb_policy(
 
 async fn create_route_via_api(path: &str, cluster_name: &str) -> Result<(), String> {
     let client = reqwest::Client::new();
+    let route_name = format!("route-{}-{}", cluster_name, path.replace("/", "-"));
     let route_data = json!({
+        "name": route_name,
         "path": path,
         "cluster_name": cluster_name
     });
@@ -581,7 +583,7 @@ async fn e2e_test_route_update_http_methods() {
     assert!(route_result.is_ok(), "Failed to create route: {:?}", route_result);
 
     // Get the route ID for updates
-    let route_id = get_route_id_by_path(route_path).await.unwrap();
+    let route_name = get_route_name_by_path(route_path).await.unwrap();
 
     // Wait for Envoy to get the configuration
     sleep(Duration::from_secs(5)).await;
@@ -601,7 +603,7 @@ async fn e2e_test_route_update_http_methods() {
     assert!(post_response.is_err(), "POST request should fail initially");
 
     // Step 4: Update route to allow GET and POST methods
-    let update_result = update_route_methods(&route_id, route_path, cluster_name, vec!["GET", "POST"]).await;
+    let update_result = update_route_methods(&route_name, route_path, cluster_name, vec!["GET", "POST"]).await;
     assert!(update_result.is_ok(), "Failed to update route methods: {:?}", update_result);
 
     // Wait for Envoy to get the updated configuration
@@ -615,7 +617,7 @@ async fn e2e_test_route_update_http_methods() {
     assert!(post_response.is_ok(), "POST request should now work: {:?}", post_response);
 
     // Step 6: Update route to remove method restrictions (allow all)
-    let update_result = update_route_remove_methods(&route_id, route_path, cluster_name).await;
+    let update_result = update_route_remove_methods(&route_name, route_path, cluster_name).await;
     assert!(update_result.is_ok(), "Failed to remove method restrictions: {:?}", update_result);
 
     // Wait for Envoy to get the updated configuration
@@ -626,7 +628,7 @@ async fn e2e_test_route_update_http_methods() {
     assert!(put_response.is_ok(), "PUT request should work with no restrictions: {:?}", put_response);
 
     // Cleanup
-    let _ = delete_route(&route_id).await;
+    let _ = delete_route(&route_name).await;
     let _ = delete_cluster(cluster_name).await;
 }
 
@@ -646,9 +648,9 @@ async fn e2e_test_route_update_full_lifecycle() {
     let route_result = create_route_with_methods(initial_path, cluster_name, Some(vec!["GET"])).await;
     assert!(route_result.is_ok(), "Failed to create route: {:?}", route_result);
 
-    let route_id = get_route_id_by_path(initial_path).await.unwrap();
+    let route_name = get_route_name_by_path(initial_path).await.unwrap();
 
-    let route_response = get_route_by_id(&route_id).await;
+    let route_response = get_route_by_name(&route_name).await;
     println!("DEBUG: Route response after update: {:?}", route_response);
 
     // Wait for Envoy configuration
@@ -659,13 +661,13 @@ async fn e2e_test_route_update_full_lifecycle() {
     assert!(initial_response.is_ok(), "Initial route should work: {:?}", initial_response);
 
     // Step 3: Update route to new path and different methods
-    let update_result = update_route_full(&route_id, updated_path, cluster_name, vec!["POST", "PUT"]).await;
+    let update_result = update_route_full(&route_name, updated_path, cluster_name, vec!["POST", "PUT"]).await;
     assert!(update_result.is_ok(), "Failed to update route: {:?}", update_result);
 
     // Wait for Envoy configuration
     sleep(Duration::from_secs(5)).await;
 
-    let route_response = get_route_by_id(&route_id).await;
+    let route_response = get_route_by_name(&route_name).await;
     println!("DEBUG: Route response after update: {:?}", route_response);
 
     // Step 4: Test old path no longer works
@@ -684,7 +686,7 @@ async fn e2e_test_route_update_full_lifecycle() {
     assert!(new_get_response.is_err(), "New route should reject GET method");
 
     // Cleanup
-    let _ = delete_route(&route_id).await;
+    let _ = delete_route(&route_name).await;
     let _ = delete_cluster(cluster_name).await;
 }
 
@@ -692,7 +694,9 @@ async fn e2e_test_route_update_full_lifecycle() {
 
 async fn create_route_with_methods(path: &str, cluster_name: &str, methods: Option<Vec<&str>>) -> Result<(), String> {
     let client = reqwest::Client::new();
+    let route_name = format!("route-{}-{}", cluster_name, path.replace("/", "-"));
     let mut route_data = json!({
+        "name": route_name,
         "path": path,
         "cluster_name": cluster_name
     });
@@ -721,9 +725,9 @@ async fn create_route_with_methods(path: &str, cluster_name: &str, methods: Opti
     }
 }
 
-async fn get_route_by_id(route_id: &str) -> Result<Value, String> {
+async fn get_route_by_name(route_name: &str) -> Result<Value, String> {
     let client = reqwest::Client::new();
-    let url = format!("http://localhost:8080/routes/{}", route_id);
+    let url = format!("http://localhost:8080/routes/{}", route_name);
     
     match client.get(&url).send().await {
         Ok(response) => {
@@ -739,7 +743,7 @@ async fn get_route_by_id(route_id: &str) -> Result<Value, String> {
     }
 }
 
-async fn get_route_id_by_path(path: &str) -> Result<String, String> {
+async fn get_route_name_by_path(path: &str) -> Result<String, String> {
     let client = reqwest::Client::new();
     match client.get("http://localhost:8080/routes").send().await {
         Ok(response) => {
@@ -752,8 +756,8 @@ async fn get_route_id_by_path(path: &str) -> Result<String, String> {
                 if let Some(routes) = routes_response["data"].as_array() {
                     for route in routes {
                         if route["path"].as_str() == Some(path) {
-                            if let Some(id) = route["id"].as_str() {
-                                return Ok(id.to_string());
+                            if let Some(name) = route["name"].as_str() {
+                                return Ok(name.to_string());
                             }
                         }
                     }
@@ -767,9 +771,9 @@ async fn get_route_id_by_path(path: &str) -> Result<String, String> {
     }
 }
 
-async fn update_route_methods(route_id: &str, path: &str, cluster_name: &str, methods: Vec<&str>) -> Result<(), String> {
+async fn update_route_methods(route_name: &str, path: &str, cluster_name: &str, methods: Vec<&str>) -> Result<(), String> {
     let client = reqwest::Client::new();
-    let url = format!("http://localhost:8080/routes/{}", route_id);
+    let url = format!("http://localhost:8080/routes/{}", route_name);
     
     let update_data = json!({
         "path": path,
@@ -792,9 +796,9 @@ async fn update_route_methods(route_id: &str, path: &str, cluster_name: &str, me
     }
 }
 
-async fn update_route_remove_methods(route_id: &str, path: &str, cluster_name: &str) -> Result<(), String> {
+async fn update_route_remove_methods(route_name: &str, path: &str, cluster_name: &str) -> Result<(), String> {
     let client = reqwest::Client::new();
-    let url = format!("http://localhost:8080/routes/{}", route_id);
+    let url = format!("http://localhost:8080/routes/{}", route_name);
     
     let update_data = json!({
         "path": path,
@@ -815,9 +819,9 @@ async fn update_route_remove_methods(route_id: &str, path: &str, cluster_name: &
     }
 }
 
-async fn update_route_full(route_id: &str, path: &str, cluster_name: &str, methods: Vec<&str>) -> Result<(), String> {
+async fn update_route_full(route_name: &str, path: &str, cluster_name: &str, methods: Vec<&str>) -> Result<(), String> {
     let client = reqwest::Client::new();
-    let url = format!("http://localhost:8080/routes/{}", route_id);
+    let url = format!("http://localhost:8080/routes/{}", route_name);
     
     let update_data = json!({
         "path": path,
@@ -867,9 +871,9 @@ async fn send_request_through_envoy_with_method(path: &str, method: &str) -> Res
     }
 }
 
-async fn delete_route(route_id: &str) -> Result<(), String> {
+async fn delete_route(route_name: &str) -> Result<(), String> {
     let client = reqwest::Client::new();
-    let url = format!("http://localhost:8080/routes/{}", route_id);
+    let url = format!("http://localhost:8080/routes/{}", route_name);
 
     match client.delete(&url).send().await {
         Ok(response) => {

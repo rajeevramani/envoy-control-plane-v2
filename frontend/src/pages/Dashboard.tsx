@@ -31,7 +31,7 @@ export function Dashboard() {
 
   const clusterCount = clusters?.length || 0
   const routeCount = routes?.length || 0
-  const totalEndpoints = clusters?.reduce((sum, cluster) => sum + cluster.endpoints.length, 0) || 0
+  // const totalEndpoints = clusters?.reduce((sum, cluster) => sum + cluster.endpoints.length, 0) || 0
 
   return (
     <div className="space-y-6">
@@ -135,11 +135,11 @@ export function Dashboard() {
               </h3>
               <div className="space-y-3">
                 {routes.slice(0, 5).map((route) => (
-                  <div key={route.id} className="flex items-center justify-between py-2 border-b border-gray-100">
+                  <div key={route.name} className="flex items-center justify-between py-2 border-b border-gray-100">
                     <div>
-                      <p className="text-sm font-medium text-gray-900">{route.path}</p>
+                      <p className="text-sm font-medium text-gray-900">{route.name}</p>
                       <p className="text-sm text-gray-500">
-                        → {route.cluster_name}
+                        {route.path} → {route.cluster_name}
                       </p>
                     </div>
                   </div>

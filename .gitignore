@@ -10,16 +10,19 @@ tests/e2e/envoy-bootstrap-tls.yaml
 tests/e2e/envoy-bootstrap-plain.yaml
 .env.test
 envoy-bootstrap-tls.yaml
+password.txt
 
 
 # Claude
 .claude/
 
-# Security - Never commit certificates or private keys
+# Security - Never commit certificates, private keys, or environment files with secrets
 certs/
 *.crt
 *.key
 *.pem
+.env.local
+.env.production
 
 # Development and temporary files
 development-log.md

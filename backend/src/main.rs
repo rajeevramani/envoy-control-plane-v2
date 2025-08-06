@@ -7,6 +7,7 @@ mod envoy;
 mod rbac;
 mod security;
 mod storage;
+mod validation;
 mod xds;
 
 use auth::JwtKeys;

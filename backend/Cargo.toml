@@ -46,6 +46,11 @@ bcrypt = "0.15"                  # Password hashing
 async-trait = "0.1.88"          # For async traits
 rand = "0.8"                     # For secure secret generation
 
+# Input Validation & Security
+validator = { version = "0.18.0", features = ["derive"] }  # Derive-based input validation
+regex = "1.10.0"                 # Pattern matching for input sanitization
+lazy_static = "1.4.0"           # Static regex compilation for performance
+
 
 # gRPC and protobuf for xDS
 tonic = { version = "0.13.1", features = ["tls-ring"] }

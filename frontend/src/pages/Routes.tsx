@@ -3,9 +3,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2, Edit, Route as RouteIcon, Lock } from 'lucide-react'
 import { apiClient } from '../lib/api-client'
 import { useCanWrite } from '../lib/auth-context'
+import { validateRoute, hasValidationErrors } from '../lib/validation'
+import type { RouteValidationErrors } from '../lib/validation'
 
 interface Route {
-  id: string
+  name: string
   path: string
   cluster_name: string
   prefix_rewrite?: string
@@ -40,7 +42,7 @@ export function Routes() {
   })
 
   const createMutation = useMutation({
-    mutationFn: (route: Omit<Route, 'id'>) => apiClient.createRoute(route),
+    mutationFn: (route: Omit<Route, 'name'> & { name: string }) => apiClient.createRoute(route),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['routes'] })
       setIsCreateOpen(false)
@@ -48,8 +50,8 @@ export function Routes() {
   })
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, route }: { id: string; route: Omit<Route, 'id'> }) => 
-      apiClient.updateRoute(id, route),
+    mutationFn: ({ name, route }: { name: string; route: Omit<Route, 'name'> }) => 
+      apiClient.updateRoute(name, route),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['routes'] })
       setEditingRoute(null)
@@ -57,7 +59,7 @@ export function Routes() {
   })
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => apiClient.deleteRoute(id),
+    mutationFn: (name: string) => apiClient.deleteRoute(name),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['routes'] })
     },
@@ -65,7 +67,7 @@ export function Routes() {
 
   const handleDelete = (route: Route) => {
     if (confirm(`Are you sure you want to delete route "${route.path}"?`)) {
-      deleteMutation.mutate(route.id)
+      deleteMutation.mutate(route.name)
     }
   }
 
@@ -145,13 +147,18 @@ export function Routes() {
             {routes.map((route) => {
               const cluster = clusters.find(c => c.name === route.cluster_name)
               return (
-                <li key={route.id}>
+                <li key={route.name}>
                   <div className="px-4 py-4 sm:px-6">
                     <div className="flex items-center justify-between">
                       <div className="flex-1">
-                        <p className="text-sm font-medium text-purple-600 truncate">
-                          {route.path}
-                        </p>
+                        <div className="flex items-center space-x-3 mb-1">
+                          <p className="text-lg font-semibold text-gray-900 truncate">
+                            {route.name}
+                          </p>
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                            {route.path}
+                          </span>
+                        </div>
                         <div className="mt-2 sm:flex sm:justify-between">
                           <div className="sm:flex">
                             <p className="flex items-center text-sm text-gray-500">
@@ -225,7 +232,7 @@ export function Routes() {
           supportedHttpMethods={supportedHttpMethods}
           onSubmit={(route) => {
             if (editingRoute) {
-              updateMutation.mutate({ id: editingRoute.id, route })
+              updateMutation.mutate({ name: editingRoute.name, route })
             } else {
               createMutation.mutate(route)
               setIsCreateOpen(false)
@@ -246,16 +253,18 @@ interface RouteFormProps {
   route?: Route | null
   clusters: Cluster[]
   supportedHttpMethods: string[]
-  onSubmit: (route: Omit<Route, 'id'>) => void
+  onSubmit: (route: Omit<Route, 'name'> & { name: string }) => void
   onClose: () => void
   isLoading: boolean
 }
 
 function RouteForm({ route, clusters, supportedHttpMethods, onSubmit, onClose, isLoading }: RouteFormProps) {
+  const [name, setName] = useState(route?.name || '')
   const [path, setPath] = useState(route?.path || '')
   const [clusterName, setClusterName] = useState(route?.cluster_name || '')
   const [prefixRewrite, setPrefixRewrite] = useState(route?.prefix_rewrite || '')
   const [selectedMethods, setSelectedMethods] = useState<string[]>(route?.http_methods || [])
+  const [validationErrors, setValidationErrors] = useState<RouteValidationErrors>({})
 
   const toggleMethod = (method: string) => {
     setSelectedMethods(prev => 
@@ -267,14 +276,25 @@ function RouteForm({ route, clusters, supportedHttpMethods, onSubmit, onClose, i
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!path.trim() || !clusterName.trim()) return
-
-    onSubmit({
+    
+    const routeData = {
+      name: name.trim(),
       path: path.trim(),
       cluster_name: clusterName.trim(),
       prefix_rewrite: prefixRewrite.trim() || undefined,
       http_methods: selectedMethods.length > 0 ? selectedMethods : undefined,
-    })
+    }
+    
+    // Validate the form data
+    const errors = validateRoute(routeData)
+    setValidationErrors(errors)
+    
+    // Don't submit if there are validation errors
+    if (hasValidationErrors(errors)) {
+      return
+    }
+
+    onSubmit(routeData)
   }
 
   const pathExamples = [
@@ -297,16 +317,56 @@ function RouteForm({ route, clusters, supportedHttpMethods, onSubmit, onClose, i
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700">
+                Route Name
+              </label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => {
+                  setName(e.target.value)
+                  // Clear validation error when user starts typing
+                  if (validationErrors.name) {
+                    setValidationErrors(prev => ({ ...prev, name: undefined }))
+                  }
+                }}
+                className={`mt-1 block w-full border rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 ${
+                  validationErrors.name ? 'border-red-300' : 'border-gray-300'
+                }`}
+                placeholder="user-service-api"
+                required
+                disabled={!!route} // Disable editing name for existing routes
+              />
+              {validationErrors.name && (
+                <p className="mt-1 text-sm text-red-600">{validationErrors.name}</p>
+              )}
+              <p className="mt-1 text-sm text-gray-500">
+                {route ? "Route name cannot be changed after creation" : "Unique identifier for this route (alphanumeric, underscore, hyphen only)"}
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700">
                 Path Pattern
               </label>
               <input
                 type="text"
                 value={path}
-                onChange={(e) => setPath(e.target.value)}
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500"
+                onChange={(e) => {
+                  setPath(e.target.value)
+                  // Clear validation error when user starts typing
+                  if (validationErrors.path) {
+                    setValidationErrors(prev => ({ ...prev, path: undefined }))
+                  }
+                }}
+                className={`mt-1 block w-full border rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 ${
+                  validationErrors.path ? 'border-red-300' : 'border-gray-300'
+                }`}
                 placeholder="/api/v1/"
                 required
               />
+              {validationErrors.path && (
+                <p className="mt-1 text-sm text-red-600">{validationErrors.path}</p>
+              )}
               <p className="mt-1 text-sm text-gray-500">
                 Examples: {pathExamples.join(', ')}
               </p>
@@ -318,8 +378,16 @@ function RouteForm({ route, clusters, supportedHttpMethods, onSubmit, onClose, i
               </label>
               <select
                 value={clusterName}
-                onChange={(e) => setClusterName(e.target.value)}
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500"
+                onChange={(e) => {
+                  setClusterName(e.target.value)
+                  // Clear validation error when user makes selection
+                  if (validationErrors.cluster_name) {
+                    setValidationErrors(prev => ({ ...prev, cluster_name: undefined }))
+                  }
+                }}
+                className={`mt-1 block w-full border rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 ${
+                  validationErrors.cluster_name ? 'border-red-300' : 'border-gray-300'
+                }`}
                 required
               >
                 <option value="">Select a cluster</option>
@@ -329,6 +397,9 @@ function RouteForm({ route, clusters, supportedHttpMethods, onSubmit, onClose, i
                   </option>
                 ))}
               </select>
+              {validationErrors.cluster_name && (
+                <p className="mt-1 text-sm text-red-600">{validationErrors.cluster_name}</p>
+              )}
               {clusterName && (
                 <div className="mt-2 text-sm text-gray-500">
                   {(() => {
@@ -350,10 +421,21 @@ function RouteForm({ route, clusters, supportedHttpMethods, onSubmit, onClose, i
               <input
                 type="text"
                 value={prefixRewrite}
-                onChange={(e) => setPrefixRewrite(e.target.value)}
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500"
+                onChange={(e) => {
+                  setPrefixRewrite(e.target.value)
+                  // Clear validation error when user starts typing
+                  if (validationErrors.prefix_rewrite) {
+                    setValidationErrors(prev => ({ ...prev, prefix_rewrite: undefined }))
+                  }
+                }}
+                className={`mt-1 block w-full border rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 ${
+                  validationErrors.prefix_rewrite ? 'border-red-300' : 'border-gray-300'
+                }`}
                 placeholder="/v1/"
               />
+              {validationErrors.prefix_rewrite && (
+                <p className="mt-1 text-sm text-red-600">{validationErrors.prefix_rewrite}</p>
+              )}
               <p className="mt-1 text-sm text-gray-500">
                 Optional: Rewrite the path prefix when forwarding to the cluster
               </p>
@@ -376,6 +458,9 @@ function RouteForm({ route, clusters, supportedHttpMethods, onSubmit, onClose, i
                   </label>
                 ))}
               </div>
+              {validationErrors.http_methods && (
+                <p className="mt-1 text-sm text-red-600">{validationErrors.http_methods}</p>
+              )}
               <p className="mt-2 text-sm text-gray-500">
                 {selectedMethods.length === 0 
                   ? "No methods selected - route will accept all HTTP methods"
@@ -387,7 +472,7 @@ function RouteForm({ route, clusters, supportedHttpMethods, onSubmit, onClose, i
             <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
               <h4 className="text-sm font-medium text-blue-800 mb-2">Route Preview</h4>
               <div className="text-sm text-blue-700">
-                {path && clusterName ? (
+                {name && path && clusterName ? (
                   <div>
                     <div>
                       {selectedMethods.length > 0 ? (

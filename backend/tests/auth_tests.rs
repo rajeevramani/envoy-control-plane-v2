@@ -489,7 +489,7 @@ async fn test_read_routes_work_with_and_without_auth() {
     // Add a route directly to storage for testing
     use envoy_control_plane::storage::models::Route;
     let route = Route {
-        id: "test-route-id".to_string(),
+        name: "test-route-id".to_string(),
         path: "/test".to_string(),
         cluster_name: "test-cluster".to_string(),
         prefix_rewrite: None,

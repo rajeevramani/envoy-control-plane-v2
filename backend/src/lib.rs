@@ -7,4 +7,5 @@ pub mod envoy;
 pub mod rbac;
 pub mod security;
 pub mod storage;
+pub mod validation;
 pub mod xds;

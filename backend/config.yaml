@@ -38,6 +38,14 @@ control_plane:
     jwt_expiry_hours: 24            # JWT tokens expire after 24 hours
     jwt_issuer: "envoy-control-plane"
     password_hash_cost: 12          # bcrypt cost (higher = more secure, slower)
+  storage:
+    limits:
+      max_routes: 1000              # Maximum number of routes
+      max_clusters: 500             # Maximum number of clusters  
+      max_endpoints_per_cluster: 50 # Maximum endpoints per cluster
+    behavior:
+      reject_on_capacity: true      # Reject requests when capacity exceeded
+      enable_metrics: true          # Enable storage capacity metrics
 
 # ===========================================
 # ENVOY CONFIGURATION GENERATION

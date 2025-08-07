@@ -18,6 +18,8 @@ pub struct ControlPlaneConfig {
     pub load_balancing: LoadBalancingConfig,
     pub http_methods: HttpMethodsConfig,
     pub authentication: AuthenticationConfig,
+    #[serde(default = "StorageConfig::default")]
+    pub storage: StorageConfig,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -58,6 +60,53 @@ pub struct AuthenticationConfig {
     pub jwt_expiry_hours: u64,
     pub jwt_issuer: String,
     pub password_hash_cost: u32,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct StorageConfig {
+    pub limits: StorageLimitsConfig,
+    pub behavior: StorageBehaviorConfig,
+}
+
+impl Default for StorageConfig {
+    fn default() -> Self {
+        Self {
+            limits: StorageLimitsConfig::default(),
+            behavior: StorageBehaviorConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct StorageLimitsConfig {
+    pub max_routes: usize,
+    pub max_clusters: usize,
+    pub max_endpoints_per_cluster: usize,
+}
+
+impl Default for StorageLimitsConfig {
+    fn default() -> Self {
+        Self {
+            max_routes: 1000,              // Production-safe defaults
+            max_clusters: 500,
+            max_endpoints_per_cluster: 50,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct StorageBehaviorConfig {
+    pub reject_on_capacity: bool,  // true = reject, false = warn and allow
+    pub enable_metrics: bool,      // Enable capacity metrics collection
+}
+
+impl Default for StorageBehaviorConfig {
+    fn default() -> Self {
+        Self {
+            reject_on_capacity: true,     // Conservative default for production safety
+            enable_metrics: true,         // Enable observability by default
+        }
+    }
 }
 
 // Envoy configuration generation (for generating Envoy configs)
@@ -133,12 +182,16 @@ impl AppConfig {
 
         // Apply security-focused environment variable overrides
         Self::apply_security_env_overrides(&mut config)?;
+        
+        // Apply storage configuration overrides
+        Self::apply_storage_env_overrides(&mut config)?;
 
         // Validate the loaded configuration
         validation::validate_config(&config)?;
 
         Ok(config)
     }
+
 
     /// Apply critical security environment variables with validation
     fn apply_security_env_overrides(config: &mut Self) -> anyhow::Result<()> {
@@ -201,6 +254,65 @@ impl AppConfig {
         // Authentication toggle
         if let Ok(auth_enabled) = std::env::var("AUTHENTICATION_ENABLED") {
             config.control_plane.authentication.enabled = auth_enabled.to_lowercase() == "true";
+        }
+
+        Ok(())
+    }
+
+    /// Apply storage configuration environment variable overrides
+    fn apply_storage_env_overrides(config: &mut Self) -> anyhow::Result<()> {
+        // Max routes override
+        if let Ok(max_routes) = std::env::var("STORAGE_MAX_ROUTES") {
+            match max_routes.parse::<usize>() {
+                Ok(limit) if limit > 0 && limit <= 100_000 => {
+                    config.control_plane.storage.limits.max_routes = limit;
+                    println!("✅ Storage max_routes override: {}", limit);
+                }
+                _ => return Err(anyhow::anyhow!(
+                    "STORAGE_MAX_ROUTES must be a number between 1 and 100,000"
+                )),
+            }
+        }
+
+        // Max clusters override  
+        if let Ok(max_clusters) = std::env::var("STORAGE_MAX_CLUSTERS") {
+            match max_clusters.parse::<usize>() {
+                Ok(limit) if limit > 0 && limit <= 50_000 => {
+                    config.control_plane.storage.limits.max_clusters = limit;
+                    println!("✅ Storage max_clusters override: {}", limit);
+                }
+                _ => return Err(anyhow::anyhow!(
+                    "STORAGE_MAX_CLUSTERS must be a number between 1 and 50,000"
+                )),
+            }
+        }
+
+        // Max endpoints per cluster override
+        if let Ok(max_endpoints) = std::env::var("STORAGE_MAX_ENDPOINTS_PER_CLUSTER") {
+            match max_endpoints.parse::<usize>() {
+                Ok(limit) if limit > 0 && limit <= 1000 => {
+                    config.control_plane.storage.limits.max_endpoints_per_cluster = limit;
+                    println!("✅ Storage max_endpoints_per_cluster override: {}", limit);
+                }
+                _ => return Err(anyhow::anyhow!(
+                    "STORAGE_MAX_ENDPOINTS_PER_CLUSTER must be a number between 1 and 1,000"
+                )),
+            }
+        }
+
+        // Behavior overrides
+        if let Ok(reject_on_capacity) = std::env::var("STORAGE_REJECT_ON_CAPACITY") {
+            config.control_plane.storage.behavior.reject_on_capacity = 
+                reject_on_capacity.to_lowercase() == "true";
+            println!("✅ Storage reject_on_capacity override: {}", 
+                   config.control_plane.storage.behavior.reject_on_capacity);
+        }
+
+        if let Ok(enable_metrics) = std::env::var("STORAGE_ENABLE_METRICS") {
+            config.control_plane.storage.behavior.enable_metrics = 
+                enable_metrics.to_lowercase() == "true";
+            println!("✅ Storage enable_metrics override: {}", 
+                   config.control_plane.storage.behavior.enable_metrics);
         }
 
         Ok(())
@@ -321,6 +433,17 @@ impl AppConfig {
                     jwt_expiry_hours: 24,
                     jwt_issuer: "envoy-control-plane-test".to_string(),
                     password_hash_cost: 8,  // Lower cost for faster tests
+                },
+                storage: StorageConfig {
+                    limits: StorageLimitsConfig {
+                        max_routes: 100,   // Smaller limits for tests
+                        max_clusters: 50,
+                        max_endpoints_per_cluster: 10,
+                    },
+                    behavior: StorageBehaviorConfig {
+                        reject_on_capacity: true,
+                        enable_metrics: false,  // Disabled for tests to reduce noise
+                    },
                 },
             },
             envoy_generation: EnvoyGenerationConfig {

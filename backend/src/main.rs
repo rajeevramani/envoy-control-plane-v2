@@ -24,7 +24,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Load configuration and create storage
     let config = AppConfig::load()?;
-    let store = ConfigStore::new();
+    let store = ConfigStore::with_config(config.control_plane.storage.clone());
 
     // Create xDS server
     let xds_server = xds::SimpleXdsServer::new(store.clone());

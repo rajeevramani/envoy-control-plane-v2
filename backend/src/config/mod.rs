@@ -100,6 +100,7 @@ pub struct StorageBehaviorConfig {
     pub enable_metrics: bool,      // Enable capacity metrics collection
 }
 
+
 impl Default for StorageBehaviorConfig {
     fn default() -> Self {
         Self {

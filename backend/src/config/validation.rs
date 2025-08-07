@@ -1,4 +1,4 @@
-use super::{AppConfig, EnvoyGenerationConfig, ServerConfig};
+use super::{AppConfig, EnvoyGenerationConfig, ServerConfig, StorageConfig};
 use anyhow::{bail, Result};
 
 /// Configuration validation errors with helpful messages
@@ -25,6 +25,7 @@ pub enum ValidationError {
 pub fn validate_config(config: &AppConfig) -> Result<()> {
     validate_server_config(&config.control_plane.server)?;
     validate_envoy_config(&config.envoy_generation)?;
+    validate_storage_config(&config.control_plane.storage)?;
     Ok(())
 }
 
@@ -232,11 +233,60 @@ fn validate_timeout(timeout_seconds: u64, field_name: &str) -> Result<()> {
     Ok(())
 }
 
+/// Validates storage configuration limits and behavior
+fn validate_storage_config(storage: &StorageConfig) -> Result<()> {
+    let limits = &storage.limits;
+    
+    // Validate route limits
+    if limits.max_routes == 0 {
+        bail!("max_routes cannot be 0");
+    }
+    if limits.max_routes > 100_000 {
+        bail!("max_routes cannot exceed 100,000 (memory concerns)");
+    }
+    
+    // Validate cluster limits
+    if limits.max_clusters == 0 {
+        bail!("max_clusters cannot be 0");
+    }
+    if limits.max_clusters > 50_000 {
+        bail!("max_clusters cannot exceed 50,000 (memory concerns)");
+    }
+    
+    // Validate endpoints per cluster
+    if limits.max_endpoints_per_cluster == 0 {
+        bail!("max_endpoints_per_cluster cannot be 0");
+    }
+    if limits.max_endpoints_per_cluster > 1000 {
+        bail!("max_endpoints_per_cluster cannot exceed 1,000 (Envoy performance)");
+    }
+    
+    // Warn about potentially problematic configurations
+    if limits.max_routes < 10 {
+        eprintln!("⚠️  Warning: max_routes {} is very low for production", limits.max_routes);
+    }
+    if limits.max_clusters < 5 {
+        eprintln!("⚠️  Warning: max_clusters {} is very low for production", limits.max_clusters);
+    }
+    if limits.max_endpoints_per_cluster < 2 {
+        eprintln!("⚠️  Warning: max_endpoints_per_cluster {} provides no redundancy", limits.max_endpoints_per_cluster);
+    }
+    
+    // Warn about memory usage concerns
+    let estimated_memory_mb = (limits.max_routes * 2 + limits.max_clusters * limits.max_endpoints_per_cluster * 1) / 1000;
+    if estimated_memory_mb > 500 {
+        eprintln!("⚠️  Warning: Storage limits may consume ~{}MB of memory", estimated_memory_mb);
+    }
+    
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::config::{
         ControlPlaneConfig, EnvoyGenerationConfig, HttpMethodsConfig, LoadBalancingConfig, LoggingConfig, TlsConfig,
+        StorageConfig, StorageLimitsConfig, StorageBehaviorConfig,
     };
     use std::path::PathBuf;
 
@@ -275,6 +325,17 @@ mod tests {
                     jwt_expiry_hours: 1,
                     jwt_issuer: "test-issuer".to_string(),
                     password_hash_cost: 4,  // Low cost for fast tests
+                },
+                storage: StorageConfig {
+                    limits: StorageLimitsConfig {
+                        max_routes: 100,   // Smaller limits for tests
+                        max_clusters: 50,
+                        max_endpoints_per_cluster: 10,
+                    },
+                    behavior: StorageBehaviorConfig {
+                        reject_on_capacity: true,
+                        enable_metrics: false,  // Disabled for tests to reduce noise
+                    },
                 },
             },
             envoy_generation: EnvoyGenerationConfig {

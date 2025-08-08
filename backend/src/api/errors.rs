@@ -165,6 +165,19 @@ impl ApiError {
         Self::Internal { message: message.into() }
     }
 
+    /// Get the HTTP status code for this error (primarily for testing)
+    pub fn status_code(&self) -> StatusCode {
+        match self {
+            ApiError::Validation { .. } => StatusCode::BAD_REQUEST,
+            ApiError::Configuration { .. } => StatusCode::INTERNAL_SERVER_ERROR,
+            ApiError::Parse { .. } => StatusCode::BAD_REQUEST,
+            ApiError::NotFound { .. } => StatusCode::NOT_FOUND,
+            ApiError::Internal { .. } => StatusCode::INTERNAL_SERVER_ERROR,
+            ApiError::Unauthorized => StatusCode::UNAUTHORIZED,
+            ApiError::Forbidden => StatusCode::FORBIDDEN,
+        }
+    }
+
     /// Log the error with structured information
     pub fn log_error(&self, request_id: Option<&str>) {
         let error_type = match self {

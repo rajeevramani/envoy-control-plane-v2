@@ -6,7 +6,7 @@ pub mod store;
 pub use models::*;
 pub use store::*;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone)]
 pub enum StorageError {
     #[error("Resource not found: {resource_type} '{resource_id}'")]
     ResourceNotFound { 
@@ -37,9 +37,9 @@ pub enum StorageError {
         resource_id: String 
     },
     
-    #[error("Storage backend error: {source}")]
+    #[error("Storage backend error: {message}")]
     Backend { 
-        source: Box<dyn std::error::Error + Send + Sync> 
+        message: String 
     },
     
     #[error("Resource validation failed: {resource_type} '{resource_id}' - {reason}")]
@@ -77,7 +77,7 @@ impl From<StorageError> for crate::api::errors::ApiError {
             StorageError::ConcurrentModification { resource_type, resource_id } => {
                 ApiError::validation(format!("Concurrent modification detected for {} '{}'", resource_type, resource_id))
             },
-            StorageError::Backend { source: _ } => {
+            StorageError::Backend { message: _ } => {
                 ApiError::internal("Storage backend error".to_string())
             },
             StorageError::ValidationFailed { resource_type, resource_id, reason } => {

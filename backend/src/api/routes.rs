@@ -21,6 +21,7 @@ pub struct AppState {
     pub xds_server: SimpleXdsServer,
     pub jwt_keys: JwtKeys,
     pub rbac: RbacEnforcer,
+    pub config: std::sync::Arc<AppConfig>,
 }
 
 pub fn create_router(
@@ -28,14 +29,16 @@ pub fn create_router(
     xds_server: SimpleXdsServer,
     jwt_keys: JwtKeys,
     rbac: RbacEnforcer,
+    config: std::sync::Arc<AppConfig>,
 ) -> Router {
     // Create secure CORS configuration based on application config
-    let cors_layer = create_cors_layer().expect("Failed to create CORS configuration");
+    let cors_layer = create_cors_layer(&config).expect("Failed to create CORS configuration");
     let app_state = AppState {
         store,
         xds_server,
         jwt_keys: jwt_keys.clone(),
         rbac: rbac.clone(),
+        config: config.clone(),
     };
 
     // Protected routes that require full authentication & authorization
@@ -117,9 +120,8 @@ pub fn create_router(
 /// - Only methods actually used by API endpoints are allowed
 /// - Origins must be explicitly configured in production via CORS_ALLOWED_ORIGINS
 /// - Headers are minimal set required for JSON API + auth + CSRF protection
-fn create_cors_layer() -> anyhow::Result<CorsLayer> {
-    // Load application configuration to get supported HTTP methods
-    let config = AppConfig::load()?;
+fn create_cors_layer(config: &AppConfig) -> anyhow::Result<CorsLayer> {
+    // Use provided application configuration to get supported HTTP methods
     
     // Convert configured HTTP methods to Axum Method types
     // Only use methods that our API actually supports

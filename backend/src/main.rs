@@ -23,7 +23,7 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
     // Load configuration and create storage
-    let config = AppConfig::load()?;
+    let config = std::sync::Arc::new(AppConfig::load()?);
     let store = ConfigStore::with_config(config.control_plane.storage.clone());
 
     // Create xDS server
@@ -36,7 +36,7 @@ async fn main() -> anyhow::Result<()> {
     let rbac = RbacEnforcer::new_simple().await?;
 
     // Create API router with all components
-    let app = api::create_router(store.clone(), xds_server.clone(), jwt_keys, rbac);
+    let app = api::create_router(store.clone(), xds_server.clone(), jwt_keys, rbac, config.clone());
 
     // Start both servers concurrently
     let rest_addr = format!(

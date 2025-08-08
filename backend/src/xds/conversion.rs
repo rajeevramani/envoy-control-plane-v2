@@ -15,7 +15,7 @@ use envoy_types::pb::envoy::config::endpoint::v3::{
 use envoy_types::pb::envoy::config::route::v3::{
     HeaderMatcher, Route, RouteAction, RouteConfiguration, RouteMatch, VirtualHost,
 };
-use envoy_types::pb::envoy::r#type::matcher::v3::RegexMatcher;
+use envoy_types::pb::envoy::r#type::matcher::v3::{RegexMatcher, StringMatcher};
 
 // Include the generated protobuf code for ADS
 include!(concat!(env!("OUT_DIR"), "/envoy.service.discovery.v3.rs"));
@@ -202,11 +202,18 @@ impl ProtoConverter {
             // Create header matchers for HTTP methods if specified
             let headers = if let Some(ref methods) = route.http_methods {
                 if methods.len() == 1 {
-                    // Single method - use exact match
+                    // Single method - use string match with exact
                     vec![HeaderMatcher {
                         name: ":method".to_string(),
                         header_match_specifier: Some(
-                            envoy_types::pb::envoy::config::route::v3::header_matcher::HeaderMatchSpecifier::ExactMatch(methods[0].clone())
+                            envoy_types::pb::envoy::config::route::v3::header_matcher::HeaderMatchSpecifier::StringMatch(
+                                StringMatcher {
+                                    match_pattern: Some(
+                                        envoy_types::pb::envoy::r#type::matcher::v3::string_matcher::MatchPattern::Exact(methods[0].clone())
+                                    ),
+                                    ..Default::default()
+                                }
+                            )
                         ),
                         ..Default::default()
                     }]

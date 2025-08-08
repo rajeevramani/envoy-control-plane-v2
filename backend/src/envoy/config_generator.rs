@@ -91,9 +91,15 @@ pub struct RouteMatch {
 pub struct HeaderMatcher {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub exact_match: Option<String>,
+    pub string_match: Option<StringMatcher>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub safe_regex_match: Option<RegexMatcher>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StringMatcher {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exact: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -316,7 +322,9 @@ admin:
                         // Single method - use exact match
                         vec![HeaderMatcher {
                             name: ":method".to_string(),
-                            exact_match: Some(methods[0].clone()),
+                            string_match: Some(StringMatcher {
+                                exact: Some(methods[0].clone()),
+                            }),
                             safe_regex_match: None,
                         }]
                     } else {
@@ -324,7 +332,7 @@ admin:
                         let regex_pattern = format!("^({})$", methods.join("|"));
                         vec![HeaderMatcher {
                             name: ":method".to_string(),
-                            exact_match: None,
+                            string_match: None,
                             safe_regex_match: Some(RegexMatcher {
                                 regex: regex_pattern,
                             }),

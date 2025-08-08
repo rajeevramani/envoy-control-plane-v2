@@ -149,7 +149,10 @@ Content-Type: application/json
 }
 
 ### Make api call
-POST http://localhost:10000/status/200
+GET http://localhost:10000/api/v1/status/200
+
+### Make api call
+POST http://localhost:10000/api/v1/status/200
 
 ### Make api call
 PUT http://localhost:10000/put

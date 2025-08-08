@@ -12,6 +12,7 @@ tests/e2e/envoy-bootstrap-plain.yaml
 envoy-bootstrap-tls.yaml
 password.txt
 outdated.txt
+issue-21-todo.md
 
 
 # Claude

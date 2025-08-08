@@ -89,8 +89,8 @@ pub async fn create_route(
     // Convert to internal type
     let payload: CreateRouteRequest = payload.into();
     
-    // Check for duplicate route names
-    if app_state.store.get_route(&payload.name).is_some() {
+    // Check for duplicate route names - if get_route succeeds, route already exists
+    if app_state.store.get_route(&payload.name).is_ok() {
         return Err(ApiError::validation(format!(
             "Route with name '{}' already exists", 
             payload.name
@@ -104,7 +104,7 @@ pub async fn create_route(
         payload.prefix_rewrite,
         payload.http_methods
     );
-    let name = app_state.store.add_route(route);
+    let name = app_state.store.add_route(route)?;
 
     // Increment version to notify Envoy of the change
     app_state.xds_server.increment_version();
@@ -123,11 +123,6 @@ pub async fn update_route(
     // Convert to internal type
     let payload: UpdateRouteRequest = payload.into();
     
-    // Check if route exists
-    if app_state.store.get_route(&name).is_none() {
-        return Err(ApiError::not_found("route".to_string()));
-    }
-
     // Create updated route with the same ID
     let updated_route = Route {
         name: name.clone(),
@@ -137,24 +132,20 @@ pub async fn update_route(
         http_methods: payload.http_methods,
     };
 
-    match app_state.store.update_route(&name, updated_route) {
-        Some(_) => {
-            // Increment version to notify Envoy of the change
-            app_state.xds_server.increment_version();
-            Ok(Json(ApiResponse::success(name, "Route updated successfully")))
-        }
-        None => Err(ApiError::not_found("resource".to_string())),
-    }
+    // update_route will return StorageError if route doesn't exist
+    app_state.store.update_route(&name, updated_route)?;
+    
+    // Increment version to notify Envoy of the change
+    app_state.xds_server.increment_version();
+    Ok(Json(ApiResponse::success(name, "Route updated successfully")))
 }
 
 pub async fn get_route(
     State(app_state): State<AppState>,
     Path(name): Path<String>,
 ) -> Result<Json<ApiResponse<Route>>, ApiError> {
-    match app_state.store.get_route(&name) {
-        Some(route) => Ok(Json(ApiResponse::success(route, "Route found"))),
-        None => Err(ApiError::not_found("resource".to_string())),
-    }
+    let route = app_state.store.get_route(&name)?;
+    Ok(Json(ApiResponse::success(route, "Route found")))
 }
 
 pub async fn list_routes(State(app_state): State<AppState>) -> Json<ApiResponse<Vec<Route>>> {
@@ -169,14 +160,11 @@ pub async fn delete_route(
     State(app_state): State<AppState>,
     Path(name): Path<String>,
 ) -> Result<Json<ApiResponse<()>>, ApiError> {
-    match app_state.store.remove_route(&name) {
-        Some(_) => {
-            // Increment version to notify Envoy of the deletion
-            app_state.xds_server.increment_version();
-            Ok(Json(ApiResponse::success((), "Route deleted successfully")))
-        }
-        None => Err(ApiError::not_found("resource".to_string())),
-    }
+    app_state.store.remove_route(&name)?;
+    
+    // Increment version to notify Envoy of the deletion
+    app_state.xds_server.increment_version();
+    Ok(Json(ApiResponse::success((), "Route deleted successfully")))
 }
 
 // Cluster handlers
@@ -210,7 +198,7 @@ pub async fn create_cluster(
         }
     };
 
-    let name = app_state.store.add_cluster(cluster);
+    let name = app_state.store.add_cluster(cluster)?;
 
     // Increment version to notify Envoy of the change
     app_state.xds_server.increment_version();
@@ -225,10 +213,8 @@ pub async fn get_cluster(
     State(app_state): State<AppState>,
     Path(name): Path<String>,
 ) -> Result<Json<ApiResponse<Cluster>>, ApiError> {
-    match app_state.store.get_cluster(&name) {
-        Some(cluster) => Ok(Json(ApiResponse::success(cluster, "Cluster found"))),
-        None => Err(ApiError::not_found("resource".to_string())),
-    }
+    let cluster = app_state.store.get_cluster(&name)?;
+    Ok(Json(ApiResponse::success(cluster, "Cluster found")))
 }
 
 pub async fn list_clusters(State(app_state): State<AppState>) -> Json<ApiResponse<Vec<Cluster>>> {
@@ -243,17 +229,14 @@ pub async fn delete_cluster(
     State(app_state): State<AppState>,
     Path(name): Path<String>,
 ) -> Result<Json<ApiResponse<()>>, ApiError> {
-    match app_state.store.remove_cluster(&name) {
-        Some(_) => {
-            // Increment version to notify Envoy of the deletion
-            app_state.xds_server.increment_version();
-            Ok(Json(ApiResponse::success(
-                (),
-                "Cluster deleted successfully",
-            )))
-        }
-        None => Err(ApiError::not_found("resource".to_string())),
-    }
+    app_state.store.remove_cluster(&name)?;
+    
+    // Increment version to notify Envoy of the deletion
+    app_state.xds_server.increment_version();
+    Ok(Json(ApiResponse::success(
+        (),
+        "Cluster deleted successfully",
+    )))
 }
 
 pub async fn update_cluster(
@@ -264,10 +247,8 @@ pub async fn update_cluster(
     // Validate the input
     payload.validate()?;
     
-    // Check if cluster exists
-    if app_state.store.get_cluster(&name).is_none() {
-        return Err(ApiError::not_found(format!("cluster '{}'", name)));
-    }
+    // Check if cluster exists - get_cluster will return StorageError if not found
+    app_state.store.get_cluster(&name)?;
     
     // Convert to internal type
     let payload: UpdateClusterRequest = payload.into();
@@ -292,15 +273,14 @@ pub async fn update_cluster(
         }
     };
 
-    // Update the cluster (remove old, add new)
-    app_state.store.remove_cluster(&name);
-    let updated_name = app_state.store.add_cluster(cluster);
+    // Update the cluster using the new update_cluster method
+    app_state.store.update_cluster(&name, cluster)?;
 
     // Increment version to notify Envoy of the change
     app_state.xds_server.increment_version();
 
     Ok(Json(ApiResponse::success(
-        updated_name,
+        name,
         "Cluster updated successfully",
     )))
 }

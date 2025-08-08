@@ -7,7 +7,6 @@ use validator::Validate;
 
 use crate::api::errors::ApiError;
 use crate::api::routes::AppState;
-use crate::config::AppConfig;
 use crate::envoy::ConfigGenerator;
 use crate::storage::{Cluster, Endpoint, Route, LoadBalancingPolicy};
 use crate::validation::{
@@ -292,31 +291,21 @@ pub struct GenerateConfigRequest {
 }
 
 pub async fn get_supported_http_methods(
-    State(_app_state): State<AppState>,
+    State(app_state): State<AppState>,
 ) -> Result<Json<ApiResponse<Vec<String>>>, ApiError> {
-    // Load app config
-    let app_config = match AppConfig::load() {
-        Ok(config) => config,
-        Err(e) => return Err(ApiError::configuration(format!("Failed to load application configuration: {}", e))),
-    };
-
+    // Use shared app config from state (no file I/O!)
     Ok(Json(ApiResponse::success(
-        app_config.control_plane.http_methods.supported_methods,
+        app_state.config.control_plane.http_methods.supported_methods.clone(),
         "Supported HTTP methods retrieved successfully",
     )))
 }
 
 pub async fn generate_bootstrap_config(
-    State(_app_state): State<AppState>,
+    State(app_state): State<AppState>,
 ) -> Result<Json<ApiResponse<String>>, ApiError> {
-    // Load app config
-    let app_config = match AppConfig::load() {
-        Ok(config) => config,
-        Err(e) => return Err(ApiError::configuration(format!("Failed to load application configuration: {}", e))),
-    };
-
+    // Use shared app config from state (no file I/O!)
     // Generate bootstrap configuration
-    match ConfigGenerator::generate_bootstrap_config(&app_config) {
+    match ConfigGenerator::generate_bootstrap_config(&app_state.config) {
         Ok(bootstrap_yaml) => Ok(Json(ApiResponse::success(
             bootstrap_yaml,
             "Bootstrap configuration generated successfully",
@@ -329,21 +318,17 @@ pub async fn generate_envoy_config(
     State(app_state): State<AppState>,
     Json(payload): Json<GenerateConfigRequest>,
 ) -> Result<Json<ApiResponse<String>>, ApiError> {
-    // Load app config (in a real app, this would be injected as state)
-    let app_config = match AppConfig::load() {
-        Ok(config) => config,
-        Err(e) => return Err(ApiError::configuration(format!("Failed to load application configuration: {}", e))),
-    };
+    // Use shared app config from state (no file I/O!)
 
     // Generate Envoy configuration
     let envoy_config =
-        match ConfigGenerator::generate_config(&app_state.store, &app_config, payload.proxy_port) {
+        match ConfigGenerator::generate_config(&app_state.store, &app_state.config, payload.proxy_port) {
             Ok(config) => config,
             Err(e) => return Err(ApiError::configuration(format!("Failed to load application configuration: {}", e))),
         };
 
     // Write to file
-    let config_dir = &app_config.envoy_generation.config_dir;
+    let config_dir = &app_state.config.envoy_generation.config_dir;
     let file_path = config_dir.join(format!("{}.yaml", payload.proxy_name));
 
     // Ensure config directory exists

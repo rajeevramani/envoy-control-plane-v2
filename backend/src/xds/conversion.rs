@@ -437,12 +437,12 @@ impl ProtoConverter {
         match type_url {
             "type.googleapis.com/envoy.config.cluster.v3.Cluster" => {
                 let cluster_list = store.list_clusters();
-                Self::clusters_to_proto(cluster_list)
+                Self::clusters_to_proto(cluster_list.iter().map(|c| (**c).clone()).collect())
             }
 
             "type.googleapis.com/envoy.config.route.v3.RouteConfiguration" => {
                 let route_list = store.list_routes();
-                Self::routes_to_proto(route_list)
+                Self::routes_to_proto(route_list.iter().map(|r| (**r).clone()).collect())
             }
 
             // For other types (listeners, endpoints, etc.) return empty for now

@@ -6,8 +6,8 @@ use super::StorageError;
 
 #[derive(Debug, Clone)]
 pub struct ConfigStore {
-    routes: Arc<DashMap<String, Route>>,
-    clusters: Arc<DashMap<String, Cluster>>,
+    routes: Arc<DashMap<String, Arc<Route>>>,
+    clusters: Arc<DashMap<String, Arc<Cluster>>>,
     config: crate::config::StorageConfig,
 }
 
@@ -74,11 +74,11 @@ impl ConfigStore {
         // Validate route before storing
         self.validate_route(&route)?;
 
-        self.routes.insert(name.clone(), route);
+        self.routes.insert(name.clone(), Arc::new(route));
         Ok(name)
     }
 
-    pub fn get_route(&self, id: &str) -> Result<Route, StorageError> {
+    pub fn get_route(&self, id: &str) -> Result<Arc<Route>, StorageError> {
         self.routes.get(id).map(|r| r.clone()).ok_or_else(|| {
             StorageError::ResourceNotFound {
                 resource_type: "Route".to_string(),
@@ -87,14 +87,14 @@ impl ConfigStore {
         })
     }
 
-    pub fn list_routes(&self) -> Vec<Route> {
+    pub fn list_routes(&self) -> Vec<Arc<Route>> {
         self.routes
             .iter()
             .map(|entry| entry.value().clone())
             .collect()
     }
 
-    pub fn remove_route(&self, id: &str) -> Result<Route, StorageError> {
+    pub fn remove_route(&self, id: &str) -> Result<Arc<Route>, StorageError> {
         self.routes.remove(id).map(|(_, route)| route).ok_or_else(|| {
             StorageError::ResourceNotFound {
                 resource_type: "Route".to_string(),
@@ -103,7 +103,7 @@ impl ConfigStore {
         })
     }
 
-    pub fn update_route(&self, id: &str, updated_route: Route) -> Result<Route, StorageError> {
+    pub fn update_route(&self, id: &str, updated_route: Route) -> Result<Arc<Route>, StorageError> {
         // Verify route exists first
         if !self.routes.contains_key(id) {
             return Err(StorageError::ResourceNotFound {
@@ -115,8 +115,9 @@ impl ConfigStore {
         // Validate updated route
         self.validate_route(&updated_route)?;
 
-        self.routes.insert(id.to_string(), updated_route.clone());
-        Ok(updated_route)
+        let arc_route = Arc::new(updated_route);
+        self.routes.insert(id.to_string(), arc_route.clone());
+        Ok(arc_route)
     }
 
     // Cluster operations with enhanced error handling
@@ -159,11 +160,11 @@ impl ConfigStore {
         // Validate cluster before storing
         self.validate_cluster(&cluster)?;
 
-        self.clusters.insert(name.clone(), cluster);
+        self.clusters.insert(name.clone(), Arc::new(cluster));
         Ok(name)
     }
 
-    pub fn get_cluster(&self, name: &str) -> Result<Cluster, StorageError> {
+    pub fn get_cluster(&self, name: &str) -> Result<Arc<Cluster>, StorageError> {
         self.clusters.get(name).map(|c| c.clone()).ok_or_else(|| {
             StorageError::ResourceNotFound {
                 resource_type: "Cluster".to_string(),
@@ -172,14 +173,14 @@ impl ConfigStore {
         })
     }
 
-    pub fn list_clusters(&self) -> Vec<Cluster> {
+    pub fn list_clusters(&self) -> Vec<Arc<Cluster>> {
         self.clusters
             .iter()
             .map(|entry| entry.value().clone())
             .collect()
     }
 
-    pub fn remove_cluster(&self, name: &str) -> Result<Cluster, StorageError> {
+    pub fn remove_cluster(&self, name: &str) -> Result<Arc<Cluster>, StorageError> {
         self.clusters.remove(name).map(|(_, cluster)| cluster).ok_or_else(|| {
             StorageError::ResourceNotFound {
                 resource_type: "Cluster".to_string(),
@@ -189,7 +190,7 @@ impl ConfigStore {
     }
 
     /// Update existing cluster with validation
-    pub fn update_cluster(&self, name: &str, updated_cluster: Cluster) -> Result<Cluster, StorageError> {
+    pub fn update_cluster(&self, name: &str, updated_cluster: Cluster) -> Result<Arc<Cluster>, StorageError> {
         // Verify cluster exists first
         if !self.clusters.contains_key(name) {
             return Err(StorageError::ResourceNotFound {
@@ -212,8 +213,9 @@ impl ConfigStore {
         // Validate updated cluster
         self.validate_cluster(&updated_cluster)?;
 
-        self.clusters.insert(name.to_string(), updated_cluster.clone());
-        Ok(updated_cluster)
+        let arc_cluster = Arc::new(updated_cluster);
+        self.clusters.insert(name.to_string(), arc_cluster.clone());
+        Ok(arc_cluster)
     }
 
     // Capacity reporting methods for observability

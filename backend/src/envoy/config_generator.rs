@@ -301,8 +301,15 @@ admin:
                 },
             },
             static_resources: StaticResources {
-                listeners: vec![Self::create_listener(routes, proxy_port, app_config)?],
-                clusters: Self::create_clusters(clusters, app_config)?,
+                listeners: vec![Self::create_listener(
+                    routes.iter().map(|r| (**r).clone()).collect(), 
+                    proxy_port, 
+                    app_config
+                )?],
+                clusters: Self::create_clusters(
+                    clusters.iter().map(|c| (**c).clone()).collect(), 
+                    app_config
+                )?,
             },
         };
 

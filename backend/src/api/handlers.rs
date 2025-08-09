@@ -144,13 +144,13 @@ pub async fn get_route(
     Path(name): Path<String>,
 ) -> Result<Json<ApiResponse<Route>>, ApiError> {
     let route = app_state.store.get_route(&name)?;
-    Ok(Json(ApiResponse::success(route, "Route found")))
+    Ok(Json(ApiResponse::success((*route).clone(), "Route found")))
 }
 
 pub async fn list_routes(State(app_state): State<AppState>) -> Json<ApiResponse<Vec<Route>>> {
     let routes = app_state.store.list_routes();
     Json(ApiResponse::success(
-        routes,
+        routes.iter().map(|r| (**r).clone()).collect(),
         "Routes retrieved successfully",
     ))
 }
@@ -213,13 +213,13 @@ pub async fn get_cluster(
     Path(name): Path<String>,
 ) -> Result<Json<ApiResponse<Cluster>>, ApiError> {
     let cluster = app_state.store.get_cluster(&name)?;
-    Ok(Json(ApiResponse::success(cluster, "Cluster found")))
+    Ok(Json(ApiResponse::success((*cluster).clone(), "Cluster found")))
 }
 
 pub async fn list_clusters(State(app_state): State<AppState>) -> Json<ApiResponse<Vec<Cluster>>> {
     let clusters = app_state.store.list_clusters();
     Json(ApiResponse::success(
-        clusters,
+        clusters.iter().map(|c| (**c).clone()).collect(),
         "Clusters retrieved successfully",
     ))
 }

@@ -1,8 +1,9 @@
 use crate::storage::models::{
-    Cluster as InternalCluster, LoadBalancingPolicy, Route as InternalRoute,
+    Cluster as InternalCluster, LoadBalancingPolicy, Route as InternalRoute, HttpFilter as InternalHttpFilter,
 };
 use prost::Message;
 use prost_types::Any;
+use envoy_types::pb::google::protobuf::Any as EnvoyAny;
 use tracing::{info, warn};
 use thiserror::Error;
 
@@ -15,7 +16,17 @@ use envoy_types::pb::envoy::config::endpoint::v3::{
 use envoy_types::pb::envoy::config::route::v3::{
     HeaderMatcher, Route, RouteAction, RouteConfiguration, RouteMatch, VirtualHost,
 };
+use envoy_types::pb::envoy::config::listener::v3::{Listener, FilterChain, Filter};
+use envoy_types::pb::envoy::extensions::filters::network::http_connection_manager::v3::{
+    HttpConnectionManager, Rds, HttpFilter,
+};
+use envoy_types::pb::envoy::extensions::filters::http::router::v3::Router;
+use envoy_types::pb::envoy::extensions::filters::http::fault::v3::HttpFault;
+use envoy_types::pb::envoy::extensions::filters::http::local_ratelimit::v3::LocalRateLimit;
+use envoy_types::pb::envoy::extensions::filters::http::cors::v3::Cors;
+use envoy_types::pb::envoy::config::core::v3::{HeaderValue, HeaderValueOption};
 use envoy_types::pb::envoy::r#type::matcher::v3::{RegexMatcher, StringMatcher};
+use base64::prelude::*;
 
 // Include the generated protobuf code for ADS
 include!(concat!(env!("OUT_DIR"), "/envoy.service.discovery.v3.rs"));
@@ -429,6 +440,592 @@ impl ProtoConverter {
         Ok(proto_clusters)
     }
 
+    /// Convert internal HTTP filters to Envoy protobuf HTTP filters
+    fn convert_http_filters(
+        http_filters: Vec<InternalHttpFilter>,
+        default_order: &[String],
+    ) -> Result<Vec<HttpFilter>, ConversionError> {
+        let mut envoy_filters = Vec::new();
+
+        // Apply filters in the configured order
+        for filter_type in default_order {
+            // Find filters of this type
+            let filters_of_type: Vec<&InternalHttpFilter> = http_filters
+                .iter()
+                .filter(|f| &f.filter_type == filter_type && f.enabled)
+                .collect();
+
+            for filter in filters_of_type {
+                match filter.filter_type.as_str() {
+                    "rate_limit" => {
+                        info!("Converting rate_limit filter '{}' to Envoy LocalRateLimit", filter.name);
+                        
+                        // Extract rate limiting config from our JSON
+                        let requests_per_unit = filter.config.get("requests_per_unit")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(100) as u32;
+                        
+                        let unit = filter.config.get("unit")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("minute");
+                            
+                        let burst_size = filter.config.get("burst_size")
+                            .and_then(|v| v.as_u64())
+                            .map(|v| v as u32);
+
+                        // Convert time unit to seconds
+                        let time_window_seconds = match unit {
+                            "second" => 1,
+                            "minute" => 60,
+                            "hour" => 3600,
+                            "day" => 86400,
+                            _ => 60, // default to minute
+                        };
+
+                        // Create Envoy LocalRateLimit configuration
+                        let rate_limit_config = LocalRateLimit {
+                            stat_prefix: format!("rate_limit_{}", filter.name),
+                            token_bucket: Some(envoy_types::pb::envoy::r#type::v3::TokenBucket {
+                                max_tokens: burst_size.unwrap_or(requests_per_unit * 2),
+                                tokens_per_fill: Some(envoy_types::pb::google::protobuf::UInt32Value { value: requests_per_unit }),
+                                fill_interval: Some(envoy_types::pb::google::protobuf::Duration {
+                                    seconds: time_window_seconds as i64,
+                                    nanos: 0,
+                                }),
+                            }),
+                            filter_enabled: Some(envoy_types::pb::envoy::config::core::v3::RuntimeFractionalPercent {
+                                default_value: Some(envoy_types::pb::envoy::r#type::v3::FractionalPercent {
+                                    numerator: 100,
+                                    denominator: envoy_types::pb::envoy::r#type::v3::fractional_percent::DenominatorType::Hundred as i32,
+                                }),
+                                runtime_key: "rate_limit_enabled".to_string(),
+                                ..Default::default()
+                            }),
+                            filter_enforced: Some(envoy_types::pb::envoy::config::core::v3::RuntimeFractionalPercent {
+                                default_value: Some(envoy_types::pb::envoy::r#type::v3::FractionalPercent {
+                                    numerator: 100,
+                                    denominator: envoy_types::pb::envoy::r#type::v3::fractional_percent::DenominatorType::Hundred as i32,
+                                }),
+                                runtime_key: "rate_limit_enforced".to_string(),
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        };
+
+                        let mut buf = Vec::new();
+                        rate_limit_config.encode(&mut buf).map_err(|e| ConversionError::ProtobufEncoding {
+                            resource_type: "LocalRateLimit".to_string(),
+                            source: e,
+                        })?;
+
+                        envoy_filters.push(HttpFilter {
+                            name: "envoy.filters.http.local_ratelimit".to_string(),
+                            config_type: Some(
+                                envoy_types::pb::envoy::extensions::filters::network::http_connection_manager::v3::http_filter::ConfigType::TypedConfig(
+                                    EnvoyAny {
+                                        type_url: "type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit".to_string(),
+                                        value: buf,
+                                    }
+                                )
+                            ),
+                            ..Default::default()
+                        });
+                    }
+                    "cors" => {
+                        info!("Converting CORS filter '{}' to Envoy CORS", filter.name);
+                        
+                        // Extract CORS config from our JSON
+                        let allowed_origins = filter.config.get("allowed_origins")
+                            .and_then(|v| v.as_array())
+                            .map(|arr| {
+                                arr.iter()
+                                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                    .collect::<Vec<String>>()
+                            })
+                            .unwrap_or_else(|| vec!["*".to_string()]);
+
+                        let allowed_methods = filter.config.get("allowed_methods")
+                            .and_then(|v| v.as_array())
+                            .map(|arr| {
+                                arr.iter()
+                                    .filter_map(|v| v.as_str())
+                                    .collect::<Vec<&str>>()
+                                    .join(",")
+                            })
+                            .unwrap_or_else(|| "GET,POST,PUT,DELETE,OPTIONS".to_string());
+
+                        let allowed_headers = filter.config.get("allowed_headers")
+                            .and_then(|v| v.as_array())
+                            .map(|arr| {
+                                arr.iter()
+                                    .filter_map(|v| v.as_str())
+                                    .collect::<Vec<&str>>()
+                                    .join(",")
+                            })
+                            .unwrap_or_else(|| "Content-Type,Authorization".to_string());
+
+                        let allow_credentials = filter.config.get("allow_credentials")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+
+                        // Create basic Envoy CORS configuration (simplified for MVP)
+                        let cors_config = Cors::default();
+
+                        let mut buf = Vec::new();
+                        cors_config.encode(&mut buf).map_err(|e| ConversionError::ProtobufEncoding {
+                            resource_type: "Cors".to_string(),
+                            source: e,
+                        })?;
+
+                        envoy_filters.push(HttpFilter {
+                            name: "envoy.filters.http.cors".to_string(),
+                            config_type: Some(
+                                envoy_types::pb::envoy::extensions::filters::network::http_connection_manager::v3::http_filter::ConfigType::TypedConfig(
+                                    EnvoyAny {
+                                        type_url: "type.googleapis.com/envoy.extensions.filters.http.cors.v3.Cors".to_string(),
+                                        value: buf,
+                                    }
+                                )
+                            ),
+                            ..Default::default()
+                        });
+                    }
+                    "header_manipulation" => {
+                        info!("Converting header_manipulation filter '{}' to Envoy Lua script", filter.name);
+                        
+                        // For header manipulation, we'll use a Lua filter since Envoy doesn't have 
+                        // a built-in generic header manipulation filter. We'll create Lua code 
+                        // that implements the header operations based on our config.
+                        
+                        let mut lua_script = String::from("function envoy_on_request(request_handle)\n");
+                        
+                        // Add request headers
+                        if let Some(headers_to_add) = filter.config.get("request_headers_to_add").and_then(|v| v.as_array()) {
+                            for header in headers_to_add {
+                                if let Some(header_obj) = header.get("header") {
+                                    if let (Some(key), Some(value)) = (
+                                        header_obj.get("key").and_then(|k| k.as_str()),
+                                        header_obj.get("value").and_then(|v| v.as_str())
+                                    ) {
+                                        lua_script.push_str(&format!(
+                                            "  request_handle:headers():add(\"{}\", \"{}\")\n", 
+                                            key, value
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // Remove request headers
+                        if let Some(headers_to_remove) = filter.config.get("request_headers_to_remove").and_then(|v| v.as_array()) {
+                            for header in headers_to_remove {
+                                if let Some(header_name) = header.as_str() {
+                                    lua_script.push_str(&format!(
+                                        "  request_handle:headers():remove(\"{}\")\n", 
+                                        header_name
+                                    ));
+                                }
+                            }
+                        }
+                        
+                        lua_script.push_str("end\n\n");
+                        lua_script.push_str("function envoy_on_response(response_handle)\n");
+                        
+                        // Add response headers
+                        if let Some(headers_to_add) = filter.config.get("response_headers_to_add").and_then(|v| v.as_array()) {
+                            for header in headers_to_add {
+                                if let Some(header_obj) = header.get("header") {
+                                    if let (Some(key), Some(value)) = (
+                                        header_obj.get("key").and_then(|k| k.as_str()),
+                                        header_obj.get("value").and_then(|v| v.as_str())
+                                    ) {
+                                        lua_script.push_str(&format!(
+                                            "  response_handle:headers():add(\"{}\", \"{}\")\n", 
+                                            key, value
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // Remove response headers
+                        if let Some(headers_to_remove) = filter.config.get("response_headers_to_remove").and_then(|v| v.as_array()) {
+                            for header in headers_to_remove {
+                                if let Some(header_name) = header.as_str() {
+                                    lua_script.push_str(&format!(
+                                        "  response_handle:headers():remove(\"{}\")\n", 
+                                        header_name
+                                    ));
+                                }
+                            }
+                        }
+                        
+                        lua_script.push_str("end\n");
+                        
+                        // Create Envoy Lua filter configuration
+                        let lua_config = envoy_types::pb::envoy::extensions::filters::http::lua::v3::Lua {
+                            default_source_code: Some(
+                                envoy_types::pb::envoy::config::core::v3::DataSource {
+                                    specifier: Some(
+                                        envoy_types::pb::envoy::config::core::v3::data_source::Specifier::InlineString(lua_script)
+                                    ),
+                                    watched_directory: None,
+                                }
+                            ),
+                            ..Default::default()
+                        };
+
+                        let mut buf = Vec::new();
+                        lua_config.encode(&mut buf).map_err(|e| ConversionError::ProtobufEncoding {
+                            resource_type: "Lua".to_string(),
+                            source: e,
+                        })?;
+
+                        envoy_filters.push(HttpFilter {
+                            name: "envoy.filters.http.lua".to_string(),
+                            config_type: Some(
+                                envoy_types::pb::envoy::extensions::filters::network::http_connection_manager::v3::http_filter::ConfigType::TypedConfig(
+                                    EnvoyAny {
+                                        type_url: "type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua".to_string(),
+                                        value: buf,
+                                    }
+                                )
+                            ),
+                            ..Default::default()
+                        });
+                    }
+                    "authentication" => {
+                        info!("Converting authentication filter '{}' to Envoy JWT Auth", filter.name);
+                        
+                        // For authentication, we'll implement a basic JWT authentication filter
+                        // This is a simplified version - in production you'd want more sophisticated auth
+                        
+                        let jwt_secret = filter.config.get("jwt_secret")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("default-secret");
+                            
+                        let jwt_issuer = filter.config.get("jwt_issuer")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("envoy-control-plane");
+                        
+                        // Create JWT authentication configuration
+                        let jwt_config = envoy_types::pb::envoy::extensions::filters::http::jwt_authn::v3::JwtAuthentication {
+                            providers: std::collections::HashMap::from([(
+                                "default_provider".to_string(),
+                                envoy_types::pb::envoy::extensions::filters::http::jwt_authn::v3::JwtProvider {
+                                    issuer: jwt_issuer.to_string(),
+                                    jwt_cache_config: Some(envoy_types::pb::envoy::extensions::filters::http::jwt_authn::v3::JwtCacheConfig {
+                                        jwt_cache_size: 1000,
+                                        ..Default::default()
+                                    }),
+                                    jwks_source_specifier: Some(
+                                        envoy_types::pb::envoy::extensions::filters::http::jwt_authn::v3::jwt_provider::JwksSourceSpecifier::LocalJwks(
+                                            envoy_types::pb::envoy::config::core::v3::DataSource {
+                                                specifier: Some(envoy_types::pb::envoy::config::core::v3::data_source::Specifier::InlineString(
+                                                    format!(r#"{{"keys":[{{"kty":"oct","k":"{}"}}]}}"#, 
+                                                        base64::prelude::BASE64_STANDARD.encode(jwt_secret))
+                                                )),
+                                                watched_directory: None,
+                                            }
+                                        )
+                                    ),
+                                    ..Default::default()
+                                }
+                            )]),
+                            rules: vec![
+                                envoy_types::pb::envoy::extensions::filters::http::jwt_authn::v3::RequirementRule {
+                                    r#match: Some(envoy_types::pb::envoy::config::route::v3::RouteMatch {
+                                        path_specifier: Some(
+                                            envoy_types::pb::envoy::config::route::v3::route_match::PathSpecifier::Prefix("/".to_string())
+                                        ),
+                                        ..Default::default()
+                                    }),
+                                    requirement_type: Some(
+                                        envoy_types::pb::envoy::extensions::filters::http::jwt_authn::v3::requirement_rule::RequirementType::Requires(
+                                            envoy_types::pb::envoy::extensions::filters::http::jwt_authn::v3::JwtRequirement {
+                                                requires_type: Some(
+                                                    envoy_types::pb::envoy::extensions::filters::http::jwt_authn::v3::jwt_requirement::RequiresType::ProviderName(
+                                                        "default_provider".to_string()
+                                                    )
+                                                ),
+                                            }
+                                        )
+                                    ),
+                                    ..Default::default()
+                                }
+                            ],
+                            ..Default::default()
+                        };
+
+                        let mut buf = Vec::new();
+                        jwt_config.encode(&mut buf).map_err(|e| ConversionError::ProtobufEncoding {
+                            resource_type: "JwtAuthentication".to_string(),
+                            source: e,
+                        })?;
+
+                        envoy_filters.push(HttpFilter {
+                            name: "envoy.filters.http.jwt_authn".to_string(),
+                            config_type: Some(
+                                envoy_types::pb::envoy::extensions::filters::network::http_connection_manager::v3::http_filter::ConfigType::TypedConfig(
+                                    EnvoyAny {
+                                        type_url: "type.googleapis.com/envoy.extensions.filters.http.jwt_authn.v3.JwtAuthentication".to_string(),
+                                        value: buf,
+                                    }
+                                )
+                            ),
+                            ..Default::default()
+                        });
+                    }
+                    "request_validation" => {
+                        info!("Converting request_validation filter '{}' to Envoy RBAC", filter.name);
+                        
+                        // For request validation, we'll use Envoy's RBAC filter
+                        // This can validate requests based on headers, paths, methods, etc.
+                        
+                        let allowed_methods = filter.config.get("allowed_methods")
+                            .and_then(|v| v.as_array())
+                            .map(|arr| {
+                                arr.iter()
+                                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                    .collect::<Vec<String>>()
+                            })
+                            .unwrap_or_else(|| vec!["GET".to_string(), "POST".to_string()]);
+
+                        let required_headers = filter.config.get("required_headers")
+                            .and_then(|v| v.as_array())
+                            .map(|arr| {
+                                arr.iter()
+                                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                    .collect::<Vec<String>>()
+                            })
+                            .unwrap_or_default();
+
+                        // Create RBAC policy for request validation
+                        let mut policies = std::collections::HashMap::new();
+                        
+                        let mut and_rules = vec![];
+                        
+                        // Add method validation
+                        if !allowed_methods.is_empty() {
+                            and_rules.push(envoy_types::pb::envoy::config::rbac::v3::Permission {
+                                rule: Some(envoy_types::pb::envoy::config::rbac::v3::permission::Rule::Header(
+                                    envoy_types::pb::envoy::config::route::v3::HeaderMatcher {
+                                        name: ":method".to_string(),
+                                        header_match_specifier: Some(
+                                            envoy_types::pb::envoy::config::route::v3::header_matcher::HeaderMatchSpecifier::StringMatch(
+                                                envoy_types::pb::envoy::r#type::matcher::v3::StringMatcher {
+                                                    match_pattern: Some(
+                                                        envoy_types::pb::envoy::r#type::matcher::v3::string_matcher::MatchPattern::SafeRegex(
+                                                            RegexMatcher {
+                                                                regex: format!("^({})$", allowed_methods.join("|")),
+                                                                ..Default::default()
+                                                            }
+                                                        )
+                                                    ),
+                                                    ..Default::default()
+                                                }
+                                            )
+                                        ),
+                                        ..Default::default()
+                                    }
+                                )),
+                            });
+                        }
+                        
+                        // Add required header validation
+                        for header in required_headers {
+                            and_rules.push(envoy_types::pb::envoy::config::rbac::v3::Permission {
+                                rule: Some(envoy_types::pb::envoy::config::rbac::v3::permission::Rule::Header(
+                                    envoy_types::pb::envoy::config::route::v3::HeaderMatcher {
+                                        name: header,
+                                        header_match_specifier: Some(
+                                            envoy_types::pb::envoy::config::route::v3::header_matcher::HeaderMatchSpecifier::PresentMatch(true)
+                                        ),
+                                        ..Default::default()
+                                    }
+                                )),
+                            });
+                        }
+
+                        policies.insert("allow_valid_requests".to_string(), 
+                            envoy_types::pb::envoy::config::rbac::v3::Policy {
+                                permissions: vec![envoy_types::pb::envoy::config::rbac::v3::Permission {
+                                    rule: Some(envoy_types::pb::envoy::config::rbac::v3::permission::Rule::AndRules(
+                                        envoy_types::pb::envoy::config::rbac::v3::permission::Set {
+                                            rules: and_rules,
+                                        }
+                                    )),
+                                }],
+                                principals: vec![envoy_types::pb::envoy::config::rbac::v3::Principal {
+                                    identifier: Some(envoy_types::pb::envoy::config::rbac::v3::principal::Identifier::Any(true)),
+                                }],
+                                ..Default::default()
+                            }
+                        );
+
+                        let rbac_config = envoy_types::pb::envoy::extensions::filters::http::rbac::v3::Rbac {
+                            rules: Some(envoy_types::pb::envoy::config::rbac::v3::Rbac {
+                                action: envoy_types::pb::envoy::config::rbac::v3::rbac::Action::Allow as i32,
+                                policies,
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        };
+
+                        let mut buf = Vec::new();
+                        rbac_config.encode(&mut buf).map_err(|e| ConversionError::ProtobufEncoding {
+                            resource_type: "RBAC".to_string(),
+                            source: e,
+                        })?;
+
+                        envoy_filters.push(HttpFilter {
+                            name: "envoy.filters.http.rbac".to_string(),
+                            config_type: Some(
+                                envoy_types::pb::envoy::extensions::filters::network::http_connection_manager::v3::http_filter::ConfigType::TypedConfig(
+                                    EnvoyAny {
+                                        type_url: "type.googleapis.com/envoy.extensions.filters.http.rbac.v3.RBAC".to_string(),
+                                        value: buf,
+                                    }
+                                )
+                            ),
+                            ..Default::default()
+                        });
+                    }
+                    _ => {
+                        warn!("Unknown filter type '{}' for filter '{}'", filter.filter_type, filter.name);
+                    }
+                }
+            }
+        }
+
+        // Always add router filter last
+        let router_config = Router::default();
+        let mut buf = Vec::new();
+        router_config.encode(&mut buf).map_err(|e| ConversionError::ProtobufEncoding {
+            resource_type: "Router".to_string(),
+            source: e,
+        })?;
+
+        envoy_filters.push(HttpFilter {
+            name: "envoy.filters.http.router".to_string(),
+            config_type: Some(
+                envoy_types::pb::envoy::extensions::filters::network::http_connection_manager::v3::http_filter::ConfigType::TypedConfig(
+                    EnvoyAny {
+                        type_url: "type.googleapis.com/envoy.extensions.filters.http.router.v3.Router".to_string(),
+                        value: buf,
+                    }
+                )
+            ),
+            ..Default::default()
+        });
+
+        Ok(envoy_filters)
+    }
+
+    /// Convert to Envoy Listener protobuf with HTTP filters integration
+    pub fn listeners_to_proto(store: &crate::storage::ConfigStore) -> Result<Vec<Any>, ConversionError> {
+        // Load config with fallback mechanism
+        let app_config = Self::load_config_with_fallback()?;
+
+        info!("Listeners conversion: Creating main listener with HTTP filters");
+
+        // Get all HTTP filters from store
+        let http_filters = store.list_http_filters();
+        let http_filters: Vec<InternalHttpFilter> = http_filters.iter().map(|f| (**f).clone()).collect();
+
+        // Convert HTTP filters to Envoy format
+        let envoy_http_filters = Self::convert_http_filters(
+            http_filters,
+            &app_config.control_plane.http_filters.default_order
+        )?;
+
+        // Create HTTP Connection Manager with filters
+        let http_conn_manager = HttpConnectionManager {
+            stat_prefix: app_config.envoy_generation.http_filters.stat_prefix.clone(),
+            route_specifier: Some(
+                envoy_types::pb::envoy::extensions::filters::network::http_connection_manager::v3::http_connection_manager::RouteSpecifier::Rds(
+                    Rds {
+                        config_source: Some(
+                            envoy_types::pb::envoy::config::core::v3::ConfigSource {
+                                config_source_specifier: Some(
+                                    envoy_types::pb::envoy::config::core::v3::config_source::ConfigSourceSpecifier::Ads(
+                                        envoy_types::pb::envoy::config::core::v3::AggregatedConfigSource {
+                                            ..Default::default()
+                                        }
+                                    )
+                                ),
+                                resource_api_version: envoy_types::pb::envoy::config::core::v3::ApiVersion::V3 as i32,
+                                ..Default::default()
+                            }
+                        ),
+                        route_config_name: app_config.envoy_generation.naming.route_config_name.clone(),
+                        ..Default::default()
+                    }
+                )
+            ),
+            http_filters: envoy_http_filters,
+            ..Default::default()
+        };
+
+        // Encode HTTP Connection Manager
+        let mut hcm_buf = Vec::new();
+        http_conn_manager.encode(&mut hcm_buf).map_err(|e| ConversionError::ProtobufEncoding {
+            resource_type: "HttpConnectionManager".to_string(),
+            source: e,
+        })?;
+
+        // Create main listener
+        let listener = Listener {
+            name: app_config.envoy_generation.bootstrap.main_listener_name.clone(),
+            address: Some(Address {
+                address: Some(
+                    envoy_types::pb::envoy::config::core::v3::address::Address::SocketAddress(
+                        SocketAddress {
+                            protocol: Self::protocol_to_proto(&app_config.envoy_generation.cluster.default_protocol),
+                            address: app_config.envoy_generation.listener.binding_address.clone(),
+                            port_specifier: Some(
+                                envoy_types::pb::envoy::config::core::v3::socket_address::PortSpecifier::PortValue(
+                                    app_config.envoy_generation.listener.default_port as u32
+                                )
+                            ),
+                            ..Default::default()
+                        }
+                    )
+                )
+            }),
+            filter_chains: vec![FilterChain {
+                filters: vec![Filter {
+                    name: app_config.envoy_generation.http_filters.hcm_filter_name.clone(),
+                    config_type: Some(
+                        envoy_types::pb::envoy::config::listener::v3::filter::ConfigType::TypedConfig(
+                            EnvoyAny {
+                                type_url: "type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager".to_string(),
+                                value: hcm_buf,
+                            }
+                        )
+                    ),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        // Encode listener to protobuf
+        let mut listener_buf = Vec::new();
+        listener.encode(&mut listener_buf).map_err(|e| ConversionError::ProtobufEncoding {
+            resource_type: "Listener".to_string(),
+            source: e,
+        })?;
+
+        info!("Listeners conversion: Encoded {} bytes for listener", listener_buf.len());
+
+        Ok(vec![Any {
+            type_url: "type.googleapis.com/envoy.config.listener.v3.Listener".to_string(),
+            value: listener_buf,
+        }])
+    }
+
     /// Get resources by type URL following the Go control plane pattern
     pub fn get_resources_by_type(
         type_url: &str,
@@ -445,8 +1042,11 @@ impl ProtoConverter {
                 Self::routes_to_proto(route_list.iter().map(|r| (**r).clone()).collect())
             }
 
-            // For other types (listeners, endpoints, etc.) return empty for now
-            // This matches the Go control plane pattern where unsupported types return empty
+            "type.googleapis.com/envoy.config.listener.v3.Listener" => {
+                Self::listeners_to_proto(store)
+            }
+
+            // For other types (endpoints, etc.) return empty for now
             _ => {
                 info!("Unsupported resource type: {type_url}");
                 Ok(vec![])

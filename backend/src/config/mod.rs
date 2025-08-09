@@ -20,6 +20,8 @@ pub struct ControlPlaneConfig {
     pub authentication: AuthenticationConfig,
     #[serde(default = "StorageConfig::default")]
     pub storage: StorageConfig,
+    #[serde(default = "HttpFiltersFeatureConfig::default")]
+    pub http_filters: HttpFiltersFeatureConfig,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -82,6 +84,7 @@ pub struct StorageLimitsConfig {
     pub max_routes: usize,
     pub max_clusters: usize,
     pub max_endpoints_per_cluster: usize,
+    pub max_http_filters: usize,
 }
 
 impl Default for StorageLimitsConfig {
@@ -90,6 +93,7 @@ impl Default for StorageLimitsConfig {
             max_routes: 1000,              // Production-safe defaults
             max_clusters: 500,
             max_endpoints_per_cluster: 50,
+            max_http_filters: 50,
         }
     }
 }
@@ -106,6 +110,52 @@ impl Default for StorageBehaviorConfig {
         Self {
             reject_on_capacity: true,     // Conservative default for production safety
             enable_metrics: true,         // Enable observability by default
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct HttpFiltersFeatureConfig {
+    pub enabled: bool,
+    pub supported_filters: Vec<String>,
+    pub default_order: Vec<String>,
+    pub limits: HttpFiltersLimitsConfig,
+}
+
+impl Default for HttpFiltersFeatureConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            supported_filters: vec![
+                "rate_limit".to_string(),
+                "cors".to_string(),
+                "header_manipulation".to_string(),
+                "authentication".to_string(),
+                "request_validation".to_string(),
+            ],
+            default_order: vec![
+                "authentication".to_string(),
+                "rate_limit".to_string(),
+                "cors".to_string(),
+                "header_manipulation".to_string(),
+                "request_validation".to_string(),
+            ],
+            limits: HttpFiltersLimitsConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct HttpFiltersLimitsConfig {
+    pub max_filters_per_route: usize,
+    pub max_global_filters: usize,
+}
+
+impl Default for HttpFiltersLimitsConfig {
+    fn default() -> Self {
+        Self {
+            max_filters_per_route: 10,
+            max_global_filters: 50,
         }
     }
 }
@@ -440,12 +490,14 @@ impl AppConfig {
                         max_routes: 100,   // Smaller limits for tests
                         max_clusters: 50,
                         max_endpoints_per_cluster: 10,
+                        max_http_filters: 20,
                     },
                     behavior: StorageBehaviorConfig {
                         reject_on_capacity: true,
                         enable_metrics: false,  // Disabled for tests to reduce noise
                     },
                 },
+                http_filters: HttpFiltersFeatureConfig::default(),
             },
             envoy_generation: EnvoyGenerationConfig {
                 config_dir: PathBuf::from("./configs"),

@@ -8,10 +8,11 @@ use tower::ServiceExt;
 
 use envoy_control_plane::api::routes::create_router;
 use envoy_control_plane::auth::JwtKeys;
-use envoy_control_plane::config::AuthenticationConfig;
+use envoy_control_plane::config::{AuthenticationConfig, AppConfig};
 use envoy_control_plane::rbac::RbacEnforcer;
 use envoy_control_plane::storage::{models::*, ConfigStore};
 use envoy_control_plane::xds::simple_server::SimpleXdsServer;
+use std::sync::Arc;
 
 /// Helper function to create a test app with fresh storage
 async fn create_test_app() -> (Router, ConfigStore) {
@@ -31,7 +32,8 @@ async fn create_test_app() -> (Router, ConfigStore) {
     // Create simple RBAC enforcer (not used since auth is disabled)  
     let rbac = RbacEnforcer::new_simple().await.unwrap();
     
-    let app = create_router(store.clone(), xds_server, jwt_keys, rbac);
+    let config = Arc::new(AppConfig::create_test_config());
+    let app = create_router(store.clone(), xds_server, jwt_keys, rbac, config);
     (app, store)
 }
 

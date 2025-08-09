@@ -1,13 +1,15 @@
 use dashmap::DashMap;
 use std::sync::Arc;
 
-use super::models::{Cluster, Route};
+use super::models::{Cluster, Route, HttpFilter, RouteFilters};
 use super::StorageError;
 
 #[derive(Debug, Clone)]
 pub struct ConfigStore {
     routes: Arc<DashMap<String, Arc<Route>>>,
     clusters: Arc<DashMap<String, Arc<Cluster>>>,
+    http_filters: Arc<DashMap<String, Arc<HttpFilter>>>,
+    route_filters: Arc<DashMap<String, RouteFilters>>,
     config: crate::config::StorageConfig,
 }
 
@@ -16,6 +18,8 @@ impl ConfigStore {
         Self {
             routes: Arc::new(DashMap::new()),
             clusters: Arc::new(DashMap::new()),
+            http_filters: Arc::new(DashMap::new()),
+            route_filters: Arc::new(DashMap::new()),
             config,
         }
     }
@@ -27,6 +31,7 @@ impl ConfigStore {
                 max_routes: 1000,
                 max_clusters: 500,
                 max_endpoints_per_cluster: 50,
+                max_http_filters: 50,
             },
             behavior: crate::config::StorageBehaviorConfig {
                 reject_on_capacity: true,
@@ -310,5 +315,149 @@ impl ConfigStore {
         }
 
         Ok(())
+    }
+
+    // HTTP Filter operations
+    pub fn add_http_filter(&self, filter: HttpFilter, supported_filters: &[String]) -> Result<String, StorageError> {
+        // Check capacity before adding
+        let current_count = self.http_filters.len();
+        if current_count >= self.config.limits.max_http_filters {
+            if self.config.behavior.reject_on_capacity {
+                return Err(StorageError::CapacityExceeded {
+                    current: current_count,
+                    limit: self.config.limits.max_http_filters,
+                });
+            } else {
+                eprintln!("⚠️  Warning: HTTP filter capacity approaching limit ({}/{})", 
+                         current_count, self.config.limits.max_http_filters);
+            }
+        }
+
+        let name = filter.name.clone();
+        
+        // Check for conflicts
+        if self.http_filters.contains_key(&name) {
+            return Err(StorageError::ResourceConflict {
+                resource_type: "HttpFilter".to_string(),
+                resource_id: name,
+            });
+        }
+
+        // Validate filter before storing
+        filter.validate(supported_filters).map_err(|reason| StorageError::ValidationFailed {
+            resource_type: "HttpFilter".to_string(),
+            resource_id: filter.name.clone(),
+            reason,
+        })?;
+
+        self.http_filters.insert(name.clone(), Arc::new(filter));
+        Ok(name)
+    }
+
+    pub fn get_http_filter(&self, name: &str) -> Result<Arc<HttpFilter>, StorageError> {
+        self.http_filters.get(name).map(|f| f.clone()).ok_or_else(|| {
+            StorageError::ResourceNotFound {
+                resource_type: "HttpFilter".to_string(),
+                resource_id: name.to_string(),
+            }
+        })
+    }
+
+    pub fn list_http_filters(&self) -> Vec<Arc<HttpFilter>> {
+        self.http_filters
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    pub fn remove_http_filter(&self, name: &str) -> Result<Arc<HttpFilter>, StorageError> {
+        // Check if filter is in use by any routes
+        for route_filter in self.route_filters.iter() {
+            if route_filter.filter_names.contains(&name.to_string()) {
+                return Err(StorageError::ValidationFailed {
+                    resource_type: "HttpFilter".to_string(),
+                    resource_id: name.to_string(),
+                    reason: format!("Filter is in use by route: {}", route_filter.route_name),
+                });
+            }
+        }
+
+        self.http_filters.remove(name).map(|(_, filter)| filter).ok_or_else(|| {
+            StorageError::ResourceNotFound {
+                resource_type: "HttpFilter".to_string(),
+                resource_id: name.to_string(),
+            }
+        })
+    }
+
+    pub fn update_http_filter(&self, name: &str, updated_filter: HttpFilter, supported_filters: &[String]) -> Result<Arc<HttpFilter>, StorageError> {
+        // Verify filter exists
+        if !self.http_filters.contains_key(name) {
+            return Err(StorageError::ResourceNotFound {
+                resource_type: "HttpFilter".to_string(),
+                resource_id: name.to_string(),
+            });
+        }
+
+        // Validate updated filter
+        updated_filter.validate(supported_filters).map_err(|reason| StorageError::ValidationFailed {
+            resource_type: "HttpFilter".to_string(),
+            resource_id: updated_filter.name.clone(),
+            reason,
+        })?;
+
+        let arc_filter = Arc::new(updated_filter);
+        self.http_filters.insert(name.to_string(), arc_filter.clone());
+        Ok(arc_filter)
+    }
+
+    // Route-Filter association operations
+    pub fn add_route_filters(&self, route_filters: RouteFilters) -> Result<String, StorageError> {
+        let route_name = route_filters.route_name.clone();
+        
+        // Verify route exists
+        if !self.routes.contains_key(&route_name) {
+            return Err(StorageError::ResourceNotFound {
+                resource_type: "Route".to_string(),
+                resource_id: route_name,
+            });
+        }
+
+        // Get list of existing filter names for validation
+        let existing_filters: Vec<String> = self.http_filters
+            .iter()
+            .map(|entry| entry.key().clone())
+            .collect();
+
+        // Validate route filters
+        route_filters.validate(&existing_filters).map_err(|reason| StorageError::ValidationFailed {
+            resource_type: "RouteFilters".to_string(),
+            resource_id: route_filters.route_name.clone(),
+            reason,
+        })?;
+
+        self.route_filters.insert(route_name.clone(), route_filters);
+        Ok(route_name)
+    }
+
+    pub fn get_route_filters(&self, route_name: &str) -> Option<RouteFilters> {
+        self.route_filters.get(route_name).map(|rf| rf.clone())
+    }
+
+    pub fn remove_route_filters(&self, route_name: &str) -> Result<RouteFilters, StorageError> {
+        self.route_filters.remove(route_name).map(|(_, rf)| rf).ok_or_else(|| {
+            StorageError::ResourceNotFound {
+                resource_type: "RouteFilters".to_string(),
+                resource_id: route_name.to_string(),
+            }
+        })
+    }
+
+    // Capacity reporting for HTTP filters
+    pub fn get_http_filter_capacity_info(&self) -> (usize, usize, f64) {
+        let current = self.http_filters.len();
+        let limit = self.config.limits.max_http_filters;
+        let utilization = (current as f64) / (limit as f64) * 100.0;
+        (current, limit, utilization)
     }
 }

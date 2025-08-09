@@ -43,9 +43,27 @@ control_plane:
       max_routes: 1000              # Maximum number of routes
       max_clusters: 500             # Maximum number of clusters  
       max_endpoints_per_cluster: 50 # Maximum endpoints per cluster
+      max_http_filters: 50          # Maximum number of HTTP filters
     behavior:
       reject_on_capacity: true      # Reject requests when capacity exceeded
       enable_metrics: true          # Enable storage capacity metrics
+  http_filters:
+    enabled: true                   # Enable HTTP filters feature
+    supported_filters:              # HTTP filter types our control plane supports
+      - "rate_limit"
+      - "cors"  
+      - "header_manipulation"
+      - "authentication"
+      - "request_validation"
+    default_order:                  # Global filter execution order
+      - "authentication"            # Auth first for security
+      - "rate_limit"               # Rate limiting after auth
+      - "cors"                     # CORS handling
+      - "header_manipulation"       # Header modifications
+      - "request_validation"        # Final validation
+    limits:
+      max_filters_per_route: 10     # Maximum filters per route
+      max_global_filters: 50        # Maximum total filters
 
 # ===========================================
 # ENVOY CONFIGURATION GENERATION

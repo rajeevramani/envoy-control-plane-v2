@@ -8,10 +8,11 @@ use tower::ServiceExt;
 
 use envoy_control_plane::api::routes::create_router;
 use envoy_control_plane::auth::JwtKeys;
-use envoy_control_plane::config::AuthenticationConfig;
+use envoy_control_plane::config::{AuthenticationConfig, AppConfig};
 use envoy_control_plane::rbac::RbacEnforcer;
 use envoy_control_plane::storage::ConfigStore;
 use envoy_control_plane::xds::simple_server::SimpleXdsServer;
+use std::sync::Arc;
 
 /// Helper to create test app with authentication ENABLED
 async fn create_auth_enabled_app() -> (Router, ConfigStore) {
@@ -31,7 +32,8 @@ async fn create_auth_enabled_app() -> (Router, ConfigStore) {
     // Create RBAC enforcer with default policies
     let rbac = RbacEnforcer::new_simple().await.unwrap();
     
-    let app = create_router(store.clone(), xds_server, jwt_keys, rbac);
+    let config = Arc::new(AppConfig::create_test_config());
+    let app = create_router(store.clone(), xds_server, jwt_keys, rbac, config);
     (app, store)
 }
 
@@ -50,7 +52,8 @@ async fn create_auth_disabled_app() -> (Router, ConfigStore) {
     let jwt_keys = JwtKeys::new(auth_config);
     let rbac = RbacEnforcer::new_simple().await.unwrap();
     
-    let app = create_router(store.clone(), xds_server, jwt_keys, rbac);
+    let config = Arc::new(AppConfig::create_test_config());
+    let app = create_router(store.clone(), xds_server, jwt_keys, rbac, config);
     (app, store)
 }
 

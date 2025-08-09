@@ -286,7 +286,7 @@ mod tests {
     use super::*;
     use crate::config::{
         ControlPlaneConfig, EnvoyGenerationConfig, HttpMethodsConfig, LoadBalancingConfig, LoggingConfig, TlsConfig,
-        StorageConfig, StorageLimitsConfig, StorageBehaviorConfig,
+        StorageConfig, StorageLimitsConfig, StorageBehaviorConfig, HttpFiltersFeatureConfig, HttpFiltersLimitsConfig,
     };
     use std::path::PathBuf;
 
@@ -331,10 +331,28 @@ mod tests {
                         max_routes: 100,   // Smaller limits for tests
                         max_clusters: 50,
                         max_endpoints_per_cluster: 10,
+                        max_http_filters: 20,
                     },
                     behavior: StorageBehaviorConfig {
                         reject_on_capacity: true,
                         enable_metrics: false,  // Disabled for tests to reduce noise
+                    },
+                },
+                http_filters: HttpFiltersFeatureConfig {
+                    enabled: true,
+                    supported_filters: vec![
+                        "rate_limit".to_string(),
+                        "cors".to_string(),
+                        "header_manipulation".to_string(),
+                    ],
+                    default_order: vec![
+                        "rate_limit".to_string(),
+                        "cors".to_string(),
+                        "header_manipulation".to_string(),
+                    ],
+                    limits: HttpFiltersLimitsConfig {
+                        max_filters_per_route: 5,
+                        max_global_filters: 20,
                     },
                 },
             },

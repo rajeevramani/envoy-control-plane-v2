@@ -8,7 +8,7 @@ use validator::Validate;
 use crate::api::errors::ApiError;
 use crate::api::routes::AppState;
 use crate::envoy::ConfigGenerator;
-use crate::storage::{Cluster, Endpoint, Route, LoadBalancingPolicy};
+use crate::storage::{Cluster, Endpoint, Route, LoadBalancingPolicy, HttpFilter, RouteFilters};
 use crate::validation::{
     ValidatedCreateRouteRequest, ValidatedUpdateRouteRequest,
     ValidatedCreateClusterRequest, ValidatedUpdateClusterRequest,
@@ -351,4 +351,182 @@ pub async fn generate_envoy_config(
 // Helper function to validate HTTP methods against config
 fn is_valid_http_method(method: &str, supported_methods: &[String]) -> bool {
     supported_methods.iter().any(|m| m.eq_ignore_ascii_case(method))
+}
+
+// HTTP Filter request/response structures
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateHttpFilterRequest {
+    pub name: String,
+    pub filter_type: String,
+    pub config: serde_json::Value,
+    pub enabled: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateHttpFilterRequest {
+    pub filter_type: String,
+    pub config: serde_json::Value,
+    pub enabled: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateRouteFiltersRequest {
+    pub route_name: String,
+    pub filter_names: Vec<String>,
+    pub custom_order: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateRouteFiltersRequest {
+    pub filter_names: Vec<String>,
+    pub custom_order: Option<Vec<String>>,
+}
+
+// HTTP Filter handlers
+pub async fn create_http_filter(
+    State(app_state): State<AppState>,
+    Json(payload): Json<CreateHttpFilterRequest>,
+) -> Result<Json<ApiResponse<String>>, ApiError> {
+    // Get supported filters from config
+    let supported_filters = &app_state.config.control_plane.http_filters.supported_filters;
+    
+    let filter = HttpFilter::new(
+        payload.name.clone(),
+        payload.filter_type,
+        payload.config,
+    ).with_enabled(payload.enabled.unwrap_or(true));
+
+    let name = app_state.store.add_http_filter(filter, supported_filters)?;
+
+    // Increment version to notify Envoy of the change
+    app_state.xds_server.increment_version();
+
+    Ok(Json(ApiResponse::success(name, "HTTP filter created successfully")))
+}
+
+pub async fn get_http_filter(
+    State(app_state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<Json<ApiResponse<HttpFilter>>, ApiError> {
+    let filter = app_state.store.get_http_filter(&name)?;
+    Ok(Json(ApiResponse::success((*filter).clone(), "HTTP filter found")))
+}
+
+pub async fn list_http_filters(State(app_state): State<AppState>) -> Json<ApiResponse<Vec<HttpFilter>>> {
+    let filters = app_state.store.list_http_filters();
+    Json(ApiResponse::success(
+        filters.iter().map(|f| (**f).clone()).collect(),
+        "HTTP filters retrieved successfully",
+    ))
+}
+
+pub async fn update_http_filter(
+    State(app_state): State<AppState>,
+    Path(name): Path<String>,
+    Json(payload): Json<UpdateHttpFilterRequest>,
+) -> Result<Json<ApiResponse<String>>, ApiError> {
+    // Get supported filters from config
+    let supported_filters = &app_state.config.control_plane.http_filters.supported_filters;
+    
+    let updated_filter = HttpFilter::new(
+        name.clone(),
+        payload.filter_type,
+        payload.config,
+    ).with_enabled(payload.enabled.unwrap_or(true));
+
+    app_state.store.update_http_filter(&name, updated_filter, supported_filters)?;
+
+    // Increment version to notify Envoy of the change
+    app_state.xds_server.increment_version();
+
+    Ok(Json(ApiResponse::success(name, "HTTP filter updated successfully")))
+}
+
+pub async fn delete_http_filter(
+    State(app_state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<Json<ApiResponse<()>>, ApiError> {
+    app_state.store.remove_http_filter(&name)?;
+    
+    // Increment version to notify Envoy of the deletion
+    app_state.xds_server.increment_version();
+    Ok(Json(ApiResponse::success((), "HTTP filter deleted successfully")))
+}
+
+// Route-Filter association handlers
+pub async fn create_route_filters(
+    State(app_state): State<AppState>,
+    Json(payload): Json<CreateRouteFiltersRequest>,
+) -> Result<Json<ApiResponse<String>>, ApiError> {
+    let route_filters = RouteFilters::new(
+        payload.route_name.clone(),
+        payload.filter_names,
+    ).with_custom_order(payload.custom_order.unwrap_or_default());
+
+    let route_name = app_state.store.add_route_filters(route_filters)?;
+
+    // Increment version to notify Envoy of the change
+    app_state.xds_server.increment_version();
+
+    Ok(Json(ApiResponse::success(route_name, "Route filters created successfully")))
+}
+
+pub async fn get_route_filters(
+    State(app_state): State<AppState>,
+    Path(route_name): Path<String>,
+) -> Result<Json<ApiResponse<RouteFilters>>, ApiError> {
+    let route_filters = app_state.store.get_route_filters(&route_name).ok_or_else(|| {
+        ApiError::not_found(format!("Route filters for '{}' not found", route_name))
+    })?;
+    Ok(Json(ApiResponse::success(route_filters, "Route filters found")))
+}
+
+pub async fn update_route_filters(
+    State(app_state): State<AppState>,
+    Path(route_name): Path<String>,
+    Json(payload): Json<UpdateRouteFiltersRequest>,
+) -> Result<Json<ApiResponse<String>>, ApiError> {
+    let updated_route_filters = RouteFilters::new(
+        route_name.clone(),
+        payload.filter_names,
+    ).with_custom_order(payload.custom_order.unwrap_or_default());
+
+    app_state.store.remove_route_filters(&route_name)?;
+    app_state.store.add_route_filters(updated_route_filters)?;
+
+    // Increment version to notify Envoy of the change
+    app_state.xds_server.increment_version();
+
+    Ok(Json(ApiResponse::success(route_name, "Route filters updated successfully")))
+}
+
+pub async fn delete_route_filters(
+    State(app_state): State<AppState>,
+    Path(route_name): Path<String>,
+) -> Result<Json<ApiResponse<()>>, ApiError> {
+    app_state.store.remove_route_filters(&route_name)?;
+    
+    // Increment version to notify Envoy of the deletion
+    app_state.xds_server.increment_version();
+    Ok(Json(ApiResponse::success((), "Route filters deleted successfully")))
+}
+
+// Get supported HTTP filter types from config
+pub async fn get_supported_http_filter_types(
+    State(app_state): State<AppState>,
+) -> Json<ApiResponse<Vec<String>>> {
+    Json(ApiResponse::success(
+        app_state.config.control_plane.http_filters.supported_filters.clone(),
+        "Supported HTTP filter types retrieved successfully",
+    ))
+}
+
+// Get default HTTP filter order from config
+pub async fn get_default_http_filter_order(
+    State(app_state): State<AppState>,
+) -> Json<ApiResponse<Vec<String>>> {
+    Json(ApiResponse::success(
+        app_state.config.control_plane.http_filters.default_order.clone(),
+        "Default HTTP filter order retrieved successfully",
+    ))
 }

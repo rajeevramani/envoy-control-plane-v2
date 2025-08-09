@@ -50,6 +50,7 @@ rand = "0.8"                     # For secure secret generation
 validator = { version = "0.20.0", features = ["derive"] }  # Derive-based input validation
 regex = "1.10.0"                 # Pattern matching for input sanitization
 lazy_static = "1.4.0"           # Static regex compilation for performance
+base64 = "0.22"                 # Base64 encoding for JWT keys
 
 
 # gRPC and protobuf for xDS

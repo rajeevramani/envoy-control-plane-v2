@@ -186,6 +186,46 @@ impl ProtoConverter {
         matches!(method, "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "HEAD" | "OPTIONS" | "TRACE" | "CONNECT")
     }
 
+    /// Validate JWT authentication filter configuration
+    pub fn validate_jwt_auth_config(filter: &InternalHttpFilter) -> Result<(), ConversionError> {
+        // Validate JWT secret
+        let jwt_secret = filter.config.get("jwt_secret")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty() && s.len() >= 32)
+            .ok_or_else(|| ConversionError::ValidationFailed {
+                reason: format!(
+                    "JWT secret for filter '{}' must be at least 32 characters long and cannot be empty", 
+                    filter.name
+                )
+            })?;
+
+        // Additional security check: ensure secret doesn't contain obvious weak patterns
+        if jwt_secret.to_lowercase().contains("secret") || 
+           jwt_secret.to_lowercase().contains("password") ||
+           jwt_secret == "a".repeat(jwt_secret.len()) ||
+           jwt_secret == "1".repeat(jwt_secret.len()) {
+            return Err(ConversionError::ValidationFailed {
+                reason: format!(
+                    "JWT secret for filter '{}' appears to be weak or contain obvious patterns. Use a cryptographically secure random string", 
+                    filter.name
+                )
+            });
+        }
+
+        // Validate JWT issuer
+        filter.config.get("jwt_issuer")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty() && s.len() <= 100)
+            .ok_or_else(|| ConversionError::ValidationFailed {
+                reason: format!(
+                    "JWT issuer for filter '{}' must be non-empty and at most 100 characters", 
+                    filter.name
+                )
+            })?;
+
+        Ok(())
+    }
+
     /// Convert internal routes to Envoy RouteConfiguration protobuf
     /// Following the Go control plane pattern from makeRoute()
     pub fn routes_to_proto(routes: Vec<InternalRoute>) -> Result<Vec<Any>, ConversionError> {
@@ -697,16 +737,31 @@ impl ProtoConverter {
                     "authentication" => {
                         info!("Converting authentication filter '{}' to Envoy JWT Auth", filter.name);
                         
+                        // Validate JWT configuration before processing
+                        Self::validate_jwt_auth_config(filter)?;
+                        
                         // For authentication, we'll implement a basic JWT authentication filter
                         // This is a simplified version - in production you'd want more sophisticated auth
                         
                         let jwt_secret = filter.config.get("jwt_secret")
                             .and_then(|v| v.as_str())
-                            .unwrap_or("default-secret");
+                            .filter(|s| !s.is_empty() && s.len() >= 32) // Minimum security requirements
+                            .ok_or_else(|| ConversionError::ValidationFailed {
+                                reason: format!(
+                                    "JWT secret for filter '{}' must be at least 32 characters long and cannot be empty", 
+                                    filter.name
+                                )
+                            })?;
                             
                         let jwt_issuer = filter.config.get("jwt_issuer")
                             .and_then(|v| v.as_str())
-                            .unwrap_or("envoy-control-plane");
+                            .filter(|s| !s.is_empty() && s.len() <= 100) // Reasonable length limit
+                            .ok_or_else(|| ConversionError::ValidationFailed {
+                                reason: format!(
+                                    "JWT issuer for filter '{}' must be non-empty and at most 100 characters", 
+                                    filter.name
+                                )
+                            })?;
                         
                         // Create JWT authentication configuration
                         let jwt_config = envoy_types::pb::envoy::extensions::filters::http::jwt_authn::v3::JwtAuthentication {

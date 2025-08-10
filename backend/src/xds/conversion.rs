@@ -186,111 +186,26 @@ impl ProtoConverter {
         matches!(method, "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "HEAD" | "OPTIONS" | "TRACE" | "CONNECT")
     }
 
-    /// Validate input for Lua injection attacks
-    /// Detects dangerous patterns that could lead to code injection
-    fn validate_lua_safety(input: &str, field_name: &str) -> Result<(), ConversionError> {
-        // Common Lua injection patterns and dangerous functions
-        let dangerous_patterns = [
-            // Lua execution functions
-            "os.execute", "io.popen", "loadstring", "load(", "dofile", "loadfile",
-            
-            // Debug and system access
-            "debug.", "package.", "require(", "_g[", "getfenv", "setfenv",
-            
-            // String manipulation that could break out of context
-            "]] ..", ".. [[", "\nend\n", "\nfunction", "\nlocal", "\nif",
-            "\nfor", "\nwhile", "\nrepeat", "\ndo\n",
-            
-            // Comment injection attempts
-            "--]]", "]]--", "/*", "*/",
-            
-            // Script termination attempts  
-            "\0", "\\0", "\nreturn", "return\n",
-        ];
-
-        let input_lower = input.to_lowercase();
-        for pattern in &dangerous_patterns {
-            if input_lower.contains(pattern) {
-                return Err(ConversionError::ValidationFailed {
-                    reason: format!(
-                        "Field '{}' contains potentially dangerous Lua pattern '{}'. This could indicate a code injection attempt.",
-                        field_name, pattern
-                    )
-                });
-            }
-        }
-
-        // Check for excessive control characters that might indicate binary injection
-        let control_char_count = input.chars().filter(|c| c.is_control()).count();
-        if control_char_count > 2 {  // Allow some control chars like \n, \t
-            return Err(ConversionError::ValidationFailed {
-                reason: format!(
-                    "Field '{}' contains excessive control characters ({} found). This may indicate an injection attempt.",
-                    field_name, control_char_count
-                )
-            });
-        }
-
-        Ok(())
-    }
+    // Removed - now using consolidated validation::security::Validator::validate_lua_safety
 
     /// Validate header name for security and HTTP compliance
     pub fn validate_header_name(name: &str) -> Result<(), ConversionError> {
-        if name.is_empty() {
-            return Err(ConversionError::ValidationFailed {
-                reason: "Header name cannot be empty".to_string()
-            });
-        }
-
-        if name.len() > 100 {
-            return Err(ConversionError::ValidationFailed {
-                reason: format!("Header name '{}' exceeds 100 character limit", name)
-            });
-        }
-
-        // Validate against Lua injection
-        Self::validate_lua_safety(name, "header_name")?;
-
-        // HTTP header names must be ASCII tokens (RFC 7230)
-        if !name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')) {
-            return Err(ConversionError::ValidationFailed {
-                reason: format!(
-                    "Header name '{}' contains invalid characters. Only alphanumeric, hyphens, underscores, and periods are allowed",
-                    name
-                )
-            });
-        }
-
-        Ok(())
+        crate::validation::security::Validator::validate_http_header_name(name)
+            .map_err(ConversionError::from)
     }
 
     /// Validate header value for security and reasonable limits
     pub fn validate_header_value(value: &str) -> Result<(), ConversionError> {
-        if value.len() > 8192 {
-            return Err(ConversionError::ValidationFailed {
-                reason: format!("Header value exceeds 8192 character limit (length: {})", value.len())
-            });
-        }
-
-        // Validate against Lua injection
-        Self::validate_lua_safety(value, "header_value")?;
-
-        // HTTP header values can contain most characters but reject most control chars
-        // Tab is allowed in HTTP header values (RFC 7230)
-        if value.chars().any(|c| c.is_control() && c != '\t') {
-            return Err(ConversionError::ValidationFailed {
-                reason: "Header value contains invalid control characters (only tab is allowed)".to_string()
-            });
-        }
-
-        Ok(())
+        crate::validation::security::Validator::validate_http_header_value(value)
+            .map_err(ConversionError::from)
     }
 
     /// Create a safe Lua string literal with proper escaping
     /// This combines injection validation with proper escaping
     pub fn safe_lua_string(input: &str, field_name: &str) -> Result<String, ConversionError> {
         // First validate for injection attempts
-        Self::validate_lua_safety(input, field_name)?;
+        crate::validation::security::Validator::validate_lua_safety(input, field_name)
+            .map_err(ConversionError::from)?;
         
         // Then escape the string for safe inclusion in Lua code
         let escaped = input
@@ -309,37 +224,155 @@ impl ProtoConverter {
         // Validate JWT secret
         let jwt_secret = filter.config.get("jwt_secret")
             .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty() && s.len() >= 32)
             .ok_or_else(|| ConversionError::ValidationFailed {
-                reason: format!(
-                    "JWT secret for filter '{}' must be at least 32 characters long and cannot be empty", 
-                    filter.name
-                )
+                reason: format!("JWT secret for filter '{}' is missing", filter.name)
             })?;
 
-        // Additional security check: ensure secret doesn't contain obvious weak patterns
-        if jwt_secret.to_lowercase().contains("secret") || 
-           jwt_secret.to_lowercase().contains("password") ||
-           jwt_secret == "a".repeat(jwt_secret.len()) ||
-           jwt_secret == "1".repeat(jwt_secret.len()) {
+        crate::validation::security::Validator::validate_jwt_secret(jwt_secret)
+            .map_err(ConversionError::from)?;
+
+        // Validate JWT issuer
+        let jwt_issuer = filter.config.get("jwt_issuer")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ConversionError::ValidationFailed {
+                reason: format!("JWT issuer for filter '{}' is missing", filter.name)
+            })?;
+
+        crate::validation::security::Validator::validate_length(jwt_issuer, "jwt_issuer", Some(1), Some(100))
+            .map_err(ConversionError::from)?;
+
+        Ok(())
+    }
+
+    /// Validate rate limit filter configuration
+    pub fn validate_rate_limit_config(filter: &InternalHttpFilter) -> Result<(), ConversionError> {
+        // Validate requests_per_unit
+        let requests_per_unit = filter.config.get("requests_per_unit")
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| ConversionError::ValidationFailed {
+                reason: format!("Rate limit requests_per_unit for filter '{}' is missing or invalid", filter.name)
+            })?;
+
+        if requests_per_unit == 0 || requests_per_unit > 1000000 {
             return Err(ConversionError::ValidationFailed {
-                reason: format!(
-                    "JWT secret for filter '{}' appears to be weak or contain obvious patterns. Use a cryptographically secure random string", 
-                    filter.name
-                )
+                reason: format!("Rate limit requests_per_unit must be between 1 and 1,000,000 for filter '{}'", filter.name)
             });
         }
 
-        // Validate JWT issuer
-        filter.config.get("jwt_issuer")
+        // Validate time_unit
+        let time_unit = filter.config.get("time_unit")
             .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty() && s.len() <= 100)
             .ok_or_else(|| ConversionError::ValidationFailed {
-                reason: format!(
-                    "JWT issuer for filter '{}' must be non-empty and at most 100 characters", 
-                    filter.name
-                )
+                reason: format!("Rate limit time_unit for filter '{}' is missing", filter.name)
             })?;
+
+        match time_unit {
+            "second" | "minute" | "hour" | "day" => {},
+            _ => return Err(ConversionError::ValidationFailed {
+                reason: format!("Invalid time_unit '{}' for filter '{}'. Must be: second, minute, hour, or day", 
+                    time_unit, filter.name)
+            })
+        }
+
+        Ok(())
+    }
+
+    /// Validate CORS filter configuration
+    pub fn validate_cors_config(filter: &InternalHttpFilter) -> Result<(), ConversionError> {
+        // Validate allowed_origins if present
+        if let Some(origins) = filter.config.get("allowed_origins") {
+            let origins_array = origins.as_array()
+                .ok_or_else(|| ConversionError::ValidationFailed {
+                    reason: format!("CORS allowed_origins must be an array for filter '{}'", filter.name)
+                })?;
+
+            for (i, origin) in origins_array.iter().enumerate() {
+                let origin_str = origin.as_str()
+                    .ok_or_else(|| ConversionError::ValidationFailed {
+                        reason: format!("CORS allowed_origins[{}] must be a string for filter '{}'", i, filter.name)
+                    })?;
+
+                crate::validation::security::Validator::validate_length(origin_str, "cors_origin", Some(1), Some(253))
+                    .map_err(ConversionError::from)?;
+                crate::validation::security::Validator::validate_lua_safety(origin_str, "cors_origin")
+                    .map_err(ConversionError::from)?;
+            }
+        }
+
+        // Validate allowed_methods if present
+        if let Some(methods) = filter.config.get("allowed_methods") {
+            let methods_array = methods.as_array()
+                .ok_or_else(|| ConversionError::ValidationFailed {
+                    reason: format!("CORS allowed_methods must be an array for filter '{}'", filter.name)
+                })?;
+
+            for (i, method) in methods_array.iter().enumerate() {
+                let method_str = method.as_str()
+                    .ok_or_else(|| ConversionError::ValidationFailed {
+                        reason: format!("CORS allowed_methods[{}] must be a string for filter '{}'", i, filter.name)
+                    })?;
+
+                match method_str {
+                    "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "HEAD" | "OPTIONS" => {},
+                    _ => return Err(ConversionError::ValidationFailed {
+                        reason: format!("Invalid HTTP method '{}' in CORS allowed_methods for filter '{}'", 
+                            method_str, filter.name)
+                    })
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Validate request validation filter configuration
+    pub fn validate_request_validation_config(filter: &InternalHttpFilter) -> Result<(), ConversionError> {
+        // Validate allowed_methods if present
+        if let Some(methods) = filter.config.get("allowed_methods") {
+            let methods_array = methods.as_array()
+                .ok_or_else(|| ConversionError::ValidationFailed {
+                    reason: format!("Request validation allowed_methods must be an array for filter '{}'", filter.name)
+                })?;
+
+            if methods_array.is_empty() {
+                return Err(ConversionError::ValidationFailed {
+                    reason: format!("Request validation allowed_methods cannot be empty for filter '{}'", filter.name)
+                });
+            }
+
+            for (i, method) in methods_array.iter().enumerate() {
+                let method_str = method.as_str()
+                    .ok_or_else(|| ConversionError::ValidationFailed {
+                        reason: format!("Request validation allowed_methods[{}] must be a string for filter '{}'", i, filter.name)
+                    })?;
+
+                match method_str {
+                    "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "HEAD" | "OPTIONS" | "TRACE" | "CONNECT" => {},
+                    _ => return Err(ConversionError::ValidationFailed {
+                        reason: format!("Invalid HTTP method '{}' in request validation allowed_methods for filter '{}'", 
+                            method_str, filter.name)
+                    })
+                }
+            }
+        }
+
+        // Validate required_headers if present
+        if let Some(headers) = filter.config.get("required_headers") {
+            let headers_array = headers.as_array()
+                .ok_or_else(|| ConversionError::ValidationFailed {
+                    reason: format!("Request validation required_headers must be an array for filter '{}'", filter.name)
+                })?;
+
+            for (i, header) in headers_array.iter().enumerate() {
+                let header_str = header.as_str()
+                    .ok_or_else(|| ConversionError::ValidationFailed {
+                        reason: format!("Request validation required_headers[{}] must be a string for filter '{}'", i, filter.name)
+                    })?;
+
+                crate::validation::security::Validator::validate_http_header_name(header_str)
+                    .map_err(ConversionError::from)?;
+            }
+        }
 
         Ok(())
     }
@@ -618,6 +651,9 @@ impl ProtoConverter {
                     "rate_limit" => {
                         info!("Converting rate_limit filter '{}' to Envoy LocalRateLimit", filter.name);
                         
+                        // Comprehensive validation
+                        Self::validate_rate_limit_config(filter)?;
+                        
                         // Extract rate limiting config from our JSON
                         let requests_per_unit = filter.config.get("requests_per_unit")
                             .and_then(|v| v.as_u64())
@@ -691,6 +727,9 @@ impl ProtoConverter {
                     }
                     "cors" => {
                         info!("Converting CORS filter '{}' to Envoy CORS", filter.name);
+                        
+                        // Comprehensive validation
+                        Self::validate_cors_config(filter)?;
                         
                         // Extract CORS config from our JSON
                         let allowed_origins = filter.config.get("allowed_origins")
@@ -979,6 +1018,9 @@ impl ProtoConverter {
                     }
                     "request_validation" => {
                         info!("Converting request_validation filter '{}' to Envoy RBAC", filter.name);
+                        
+                        // Comprehensive validation
+                        Self::validate_request_validation_config(filter)?;
                         
                         // For request validation, we'll use Envoy's RBAC filter
                         // This can validate requests based on headers, paths, methods, etc.

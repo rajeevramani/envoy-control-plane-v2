@@ -3,6 +3,8 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use validator::{Validate, ValidationError};
 
+pub mod security;
+
 /// Validation patterns for different input types
 lazy_static! {
     /// Route names: alphanumeric, underscore, hyphen only (1-100 chars)

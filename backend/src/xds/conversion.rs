@@ -186,6 +186,124 @@ impl ProtoConverter {
         matches!(method, "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "HEAD" | "OPTIONS" | "TRACE" | "CONNECT")
     }
 
+    /// Validate input for Lua injection attacks
+    /// Detects dangerous patterns that could lead to code injection
+    fn validate_lua_safety(input: &str, field_name: &str) -> Result<(), ConversionError> {
+        // Common Lua injection patterns and dangerous functions
+        let dangerous_patterns = [
+            // Lua execution functions
+            "os.execute", "io.popen", "loadstring", "load(", "dofile", "loadfile",
+            
+            // Debug and system access
+            "debug.", "package.", "require(", "_g[", "getfenv", "setfenv",
+            
+            // String manipulation that could break out of context
+            "]] ..", ".. [[", "\nend\n", "\nfunction", "\nlocal", "\nif",
+            "\nfor", "\nwhile", "\nrepeat", "\ndo\n",
+            
+            // Comment injection attempts
+            "--]]", "]]--", "/*", "*/",
+            
+            // Script termination attempts  
+            "\0", "\\0", "\nreturn", "return\n",
+        ];
+
+        let input_lower = input.to_lowercase();
+        for pattern in &dangerous_patterns {
+            if input_lower.contains(pattern) {
+                return Err(ConversionError::ValidationFailed {
+                    reason: format!(
+                        "Field '{}' contains potentially dangerous Lua pattern '{}'. This could indicate a code injection attempt.",
+                        field_name, pattern
+                    )
+                });
+            }
+        }
+
+        // Check for excessive control characters that might indicate binary injection
+        let control_char_count = input.chars().filter(|c| c.is_control()).count();
+        if control_char_count > 2 {  // Allow some control chars like \n, \t
+            return Err(ConversionError::ValidationFailed {
+                reason: format!(
+                    "Field '{}' contains excessive control characters ({} found). This may indicate an injection attempt.",
+                    field_name, control_char_count
+                )
+            });
+        }
+
+        Ok(())
+    }
+
+    /// Validate header name for security and HTTP compliance
+    pub fn validate_header_name(name: &str) -> Result<(), ConversionError> {
+        if name.is_empty() {
+            return Err(ConversionError::ValidationFailed {
+                reason: "Header name cannot be empty".to_string()
+            });
+        }
+
+        if name.len() > 100 {
+            return Err(ConversionError::ValidationFailed {
+                reason: format!("Header name '{}' exceeds 100 character limit", name)
+            });
+        }
+
+        // Validate against Lua injection
+        Self::validate_lua_safety(name, "header_name")?;
+
+        // HTTP header names must be ASCII tokens (RFC 7230)
+        if !name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')) {
+            return Err(ConversionError::ValidationFailed {
+                reason: format!(
+                    "Header name '{}' contains invalid characters. Only alphanumeric, hyphens, underscores, and periods are allowed",
+                    name
+                )
+            });
+        }
+
+        Ok(())
+    }
+
+    /// Validate header value for security and reasonable limits
+    pub fn validate_header_value(value: &str) -> Result<(), ConversionError> {
+        if value.len() > 8192 {
+            return Err(ConversionError::ValidationFailed {
+                reason: format!("Header value exceeds 8192 character limit (length: {})", value.len())
+            });
+        }
+
+        // Validate against Lua injection
+        Self::validate_lua_safety(value, "header_value")?;
+
+        // HTTP header values can contain most characters but reject most control chars
+        // Tab is allowed in HTTP header values (RFC 7230)
+        if value.chars().any(|c| c.is_control() && c != '\t') {
+            return Err(ConversionError::ValidationFailed {
+                reason: "Header value contains invalid control characters (only tab is allowed)".to_string()
+            });
+        }
+
+        Ok(())
+    }
+
+    /// Create a safe Lua string literal with proper escaping
+    /// This combines injection validation with proper escaping
+    pub fn safe_lua_string(input: &str, field_name: &str) -> Result<String, ConversionError> {
+        // First validate for injection attempts
+        Self::validate_lua_safety(input, field_name)?;
+        
+        // Then escape the string for safe inclusion in Lua code
+        let escaped = input
+            .replace('\\', "\\\\")  // Escape backslashes first
+            .replace('"', "\\\"")   // Escape double quotes
+            .replace('\n', "\\n")   // Escape newlines  
+            .replace('\r', "\\r")   // Escape carriage returns
+            .replace('\t', "\\t")   // Escape tabs
+            .replace('\0', "\\0");  // Escape null bytes
+        
+        Ok(format!("\"{}\"", escaped))
+    }
+
     /// Validate JWT authentication filter configuration
     pub fn validate_jwt_auth_config(filter: &InternalHttpFilter) -> Result<(), ConversionError> {
         // Validate JWT secret
@@ -481,7 +599,7 @@ impl ProtoConverter {
     }
 
     /// Convert internal HTTP filters to Envoy protobuf HTTP filters
-    fn convert_http_filters(
+    pub fn convert_http_filters(
         http_filters: Vec<InternalHttpFilter>,
         default_order: &[String],
     ) -> Result<Vec<HttpFilter>, ConversionError> {
@@ -639,7 +757,7 @@ impl ProtoConverter {
                         
                         let mut lua_script = String::from("function envoy_on_request(request_handle)\n");
                         
-                        // Add request headers
+                        // Add request headers (with security validation and escaping)
                         if let Some(headers_to_add) = filter.config.get("request_headers_to_add").and_then(|v| v.as_array()) {
                             for header in headers_to_add {
                                 if let Some(header_obj) = header.get("header") {
@@ -647,22 +765,36 @@ impl ProtoConverter {
                                         header_obj.get("key").and_then(|k| k.as_str()),
                                         header_obj.get("value").and_then(|v| v.as_str())
                                     ) {
+                                        // Validate header name and value for security
+                                        Self::validate_header_name(key)?;
+                                        Self::validate_header_value(value)?;
+                                        
+                                        // Generate safe Lua string literals
+                                        let safe_key = Self::safe_lua_string(key, "request_header_key")?;
+                                        let safe_value = Self::safe_lua_string(value, "request_header_value")?;
+                                        
                                         lua_script.push_str(&format!(
-                                            "  request_handle:headers():add(\"{}\", \"{}\")\n", 
-                                            key, value
+                                            "  request_handle:headers():add({}, {})\n", 
+                                            safe_key, safe_value
                                         ));
                                     }
                                 }
                             }
                         }
                         
-                        // Remove request headers
+                        // Remove request headers (with security validation and escaping)
                         if let Some(headers_to_remove) = filter.config.get("request_headers_to_remove").and_then(|v| v.as_array()) {
                             for header in headers_to_remove {
                                 if let Some(header_name) = header.as_str() {
+                                    // Validate header name for security
+                                    Self::validate_header_name(header_name)?;
+                                    
+                                    // Generate safe Lua string literal
+                                    let safe_name = Self::safe_lua_string(header_name, "request_header_remove")?;
+                                    
                                     lua_script.push_str(&format!(
-                                        "  request_handle:headers():remove(\"{}\")\n", 
-                                        header_name
+                                        "  request_handle:headers():remove({})\n", 
+                                        safe_name
                                     ));
                                 }
                             }
@@ -671,7 +803,7 @@ impl ProtoConverter {
                         lua_script.push_str("end\n\n");
                         lua_script.push_str("function envoy_on_response(response_handle)\n");
                         
-                        // Add response headers
+                        // Add response headers (with security validation and escaping)
                         if let Some(headers_to_add) = filter.config.get("response_headers_to_add").and_then(|v| v.as_array()) {
                             for header in headers_to_add {
                                 if let Some(header_obj) = header.get("header") {
@@ -679,22 +811,36 @@ impl ProtoConverter {
                                         header_obj.get("key").and_then(|k| k.as_str()),
                                         header_obj.get("value").and_then(|v| v.as_str())
                                     ) {
+                                        // Validate header name and value for security
+                                        Self::validate_header_name(key)?;
+                                        Self::validate_header_value(value)?;
+                                        
+                                        // Generate safe Lua string literals
+                                        let safe_key = Self::safe_lua_string(key, "response_header_key")?;
+                                        let safe_value = Self::safe_lua_string(value, "response_header_value")?;
+                                        
                                         lua_script.push_str(&format!(
-                                            "  response_handle:headers():add(\"{}\", \"{}\")\n", 
-                                            key, value
+                                            "  response_handle:headers():add({}, {})\n", 
+                                            safe_key, safe_value
                                         ));
                                     }
                                 }
                             }
                         }
                         
-                        // Remove response headers
+                        // Remove response headers (with security validation and escaping)
                         if let Some(headers_to_remove) = filter.config.get("response_headers_to_remove").and_then(|v| v.as_array()) {
                             for header in headers_to_remove {
                                 if let Some(header_name) = header.as_str() {
+                                    // Validate header name for security
+                                    Self::validate_header_name(header_name)?;
+                                    
+                                    // Generate safe Lua string literal
+                                    let safe_name = Self::safe_lua_string(header_name, "response_header_remove")?;
+                                    
                                     lua_script.push_str(&format!(
-                                        "  response_handle:headers():remove(\"{}\")\n", 
-                                        header_name
+                                        "  response_handle:headers():remove({})\n", 
+                                        safe_name
                                     ));
                                 }
                             }

@@ -8,11 +8,90 @@ use tower::ServiceExt;
 
 use envoy_control_plane::api::routes::create_router;
 use envoy_control_plane::auth::JwtKeys;
-use envoy_control_plane::config::{AuthenticationConfig, AppConfig};
+use envoy_control_plane::config::{AuthenticationConfig, AppConfig, *};
 use envoy_control_plane::rbac::RbacEnforcer;
 use envoy_control_plane::storage::ConfigStore;
 use envoy_control_plane::xds::simple_server::SimpleXdsServer;
+use std::path::PathBuf;
 use std::sync::Arc;
+
+/// Create a test configuration for integration tests
+fn create_test_config() -> AppConfig {
+    AppConfig {
+        control_plane: ControlPlaneConfig {
+            server: ServerConfig {
+                rest_port: 8080,
+                xds_port: 18000,
+                host: "0.0.0.0".to_string(),
+            },
+            tls: TlsConfig {
+                cert_path: "./certs/server.crt".to_string(),
+                key_path: "./certs/server.key".to_string(),
+                enabled: true,
+            },
+            logging: LoggingConfig {
+                level: "info".to_string(),
+            },
+            load_balancing: LoadBalancingConfig {
+                envoy_version: "1.24".to_string(),
+                available_policies: vec!["ROUND_ROBIN".to_string()],
+                default_policy: "ROUND_ROBIN".to_string(),
+            },
+            http_methods: HttpMethodsConfig {
+                supported_methods: vec![
+                    "GET".to_string(),
+                    "POST".to_string(),
+                    "PUT".to_string(),
+                    "DELETE".to_string(),
+                ],
+            },
+            authentication: AuthenticationConfig {
+                enabled: false,  // Will be overridden in individual test functions
+                jwt_secret: "test-secret-1234567890abcdefghijklmnopqrstuvwxyz".to_string(),
+                jwt_expiry_hours: 24,
+                jwt_issuer: "envoy-control-plane-test".to_string(),
+                password_hash_cost: 8,
+            },
+            storage: StorageConfig::default(),
+            http_filters: HttpFiltersFeatureConfig::default(),
+        },
+        envoy_generation: EnvoyGenerationConfig {
+            config_dir: PathBuf::from("./configs"),
+            admin: AdminConfig {
+                host: "127.0.0.1".to_string(),
+                port: 9901,
+            },
+            listener: ListenerConfig {
+                binding_address: "0.0.0.0".to_string(),
+                default_port: 10000,
+            },
+            cluster: ClusterConfig {
+                connect_timeout_seconds: 5,
+                discovery_type: "STRICT_DNS".to_string(),
+                dns_lookup_family: "V4_ONLY".to_string(),
+                default_protocol: "TCP".to_string(),
+            },
+            naming: NamingConfig {
+                listener_name: "listener_0".to_string(),
+                virtual_host_name: "local_service".to_string(),
+                route_config_name: "local_route".to_string(),
+                default_domains: vec!["*".to_string()],
+            },
+            bootstrap: BootstrapConfig {
+                node_id: "envoy-test-node".to_string(),
+                node_cluster: "envoy-test-cluster".to_string(),
+                control_plane_host: "control-plane".to_string(),
+                main_listener_name: "main_listener".to_string(),
+                control_plane_cluster_name: "control_plane_cluster".to_string(),
+            },
+            http_filters: HttpFiltersConfig {
+                stat_prefix: "ingress_http".to_string(),
+                router_filter_name: "envoy.filters.http.router".to_string(),
+                hcm_filter_name: "envoy.filters.network.http_connection_manager".to_string(),
+            },
+        },
+    }
+}
 
 /// Helper to create test app with authentication ENABLED
 async fn create_auth_enabled_app() -> (Router, ConfigStore) {
@@ -32,7 +111,7 @@ async fn create_auth_enabled_app() -> (Router, ConfigStore) {
     // Create RBAC enforcer with default policies
     let rbac = RbacEnforcer::new_simple().await.unwrap();
     
-    let config = Arc::new(AppConfig::create_test_config());
+    let config = Arc::new(create_test_config());
     let app = create_router(store.clone(), xds_server, jwt_keys, rbac, config);
     (app, store)
 }
@@ -52,7 +131,7 @@ async fn create_auth_disabled_app() -> (Router, ConfigStore) {
     let jwt_keys = JwtKeys::new(auth_config);
     let rbac = RbacEnforcer::new_simple().await.unwrap();
     
-    let config = Arc::new(AppConfig::create_test_config());
+    let config = Arc::new(create_test_config());
     let app = create_router(store.clone(), xds_server, jwt_keys, rbac, config);
     (app, store)
 }

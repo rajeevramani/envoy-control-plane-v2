@@ -1,6 +1,7 @@
 use crate::storage::models::{
     Cluster as InternalCluster, LoadBalancingPolicy, Route as InternalRoute, HttpFilter as InternalHttpFilter,
 };
+use crate::xds::filters::FilterStrategyRegistry;
 use prost::Message;
 use prost_types::Any;
 use envoy_types::pb::google::protobuf::Any as EnvoyAny;
@@ -68,6 +69,12 @@ pub enum ConversionError {
     ValidationFailed {
         reason: String,
     },
+
+    #[error("Unsupported filter type '{filter_type}'. Supported types: {supported_types:?}")]
+    UnsupportedFilterType {
+        filter_type: String,
+        supported_types: Vec<String>,
+    },
 }
 
 impl From<ConversionError> for crate::api::errors::ApiError {
@@ -93,6 +100,12 @@ impl From<ConversionError> for crate::api::errors::ApiError {
             },
             ConversionError::ValidationFailed { reason } => {
                 ApiError::validation(reason)
+            },
+            ConversionError::UnsupportedFilterType { filter_type, supported_types } => {
+                ApiError::validation(format!(
+                    "Unsupported filter type '{}'. Supported types: {:?}", 
+                    filter_type, supported_types
+                ))
             },
         }
     }
@@ -635,6 +648,7 @@ impl ProtoConverter {
     pub fn convert_http_filters(
         http_filters: Vec<InternalHttpFilter>,
         default_order: &[String],
+        app_config: &crate::config::AppConfig,
     ) -> Result<Vec<HttpFilter>, ConversionError> {
         let mut envoy_filters = Vec::new();
 

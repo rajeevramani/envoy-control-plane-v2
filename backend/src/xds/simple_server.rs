@@ -6,7 +6,7 @@ use tokio_stream::{wrappers::ReceiverStream, Stream};
 use tonic::{Request, Response, Status, Streaming};
 
 use crate::storage::ConfigStore;
-use crate::xds::conversion::ProtoConverter;
+use crate::xds::conversion::get_resources_by_type;
 
 // Include the generated protobuf code
 include!(concat!(env!("OUT_DIR"), "/envoy.service.discovery.v3.rs"));
@@ -108,7 +108,7 @@ impl aggregated_discovery_service_server::AggregatedDiscoveryService for SimpleX
                                 println!("📨 ADS: This is an initial request, sending response");
 
                                 // Get actual resources from the store using the conversion module
-                                let resources = match ProtoConverter::get_resources_by_type(&request.type_url, &store) {
+                                let resources = match get_resources_by_type(&request.type_url, &store) {
                                     Ok(resources) => {
                                         println!("✅ ADS: Found {} resources for type: {}", resources.len(), request.type_url);
                                         resources
@@ -162,7 +162,7 @@ impl aggregated_discovery_service_server::AggregatedDiscoveryService for SimpleX
 
                             // Send updates for all types this client is interested in
                             for type_url in &pending_types {
-                                let resources = match ProtoConverter::get_resources_by_type(type_url, &store) {
+                                let resources = match get_resources_by_type(type_url, &store) {
                                     Ok(resources) => {
                                         println!("✅ ADS: Found {} resources for type: {type_url}", resources.len());
                                         resources

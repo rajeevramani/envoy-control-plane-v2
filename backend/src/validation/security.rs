@@ -69,7 +69,8 @@ impl Validator {
     ) -> Result<(), ValidationError> {
         let len = value.len();
         
-        if len == 0 {
+        // Only reject empty if a minimum length is explicitly required
+        if len == 0 && min.is_some() && min.unwrap() > 0 {
             return Err(ValidationError::Empty { 
                 field_name: field_name.to_string() 
             });
@@ -184,7 +185,8 @@ impl Validator {
             return Ok(());
         }
         
-        Self::validate_length(value, "header_value", Some(1), Some(8192))?;
+        // For non-empty values, validate length (no minimum since empty is already handled)
+        Self::validate_length(value, "header_value", None, Some(8192))?;
         Self::validate_lua_safety(value, "header_value")?;
         
         // HTTP header values can contain most characters but reject most control chars

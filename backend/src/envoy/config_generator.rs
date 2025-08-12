@@ -162,6 +162,65 @@ pub struct ConfigGenerator;
 impl ConfigGenerator {
     /// Generate Envoy bootstrap configuration using our config system
     pub fn generate_bootstrap_config(app_config: &AppConfig) -> anyhow::Result<String> {
+        tracing::info!("🔧 Bootstrap generation: http_filters.enabled = {}", app_config.control_plane.http_filters.enabled);
+        tracing::info!("🔧 Bootstrap condition check: !http_filters.enabled = {}", !app_config.control_plane.http_filters.enabled);
+        
+        // Build the LDS configuration if HTTP filters are enabled (based on config.yaml)
+        let lds_config = if app_config.control_plane.http_filters.enabled {
+            tracing::info!("📝 Bootstrap: Adding LDS config for HTTP filters");
+            r#"
+  
+  # Tell Envoy to get listeners via ADS (this enables HTTP filters!)
+  lds_config:
+    ads: {}
+    resource_api_version: V3"#
+        } else {
+            tracing::info!("📝 Bootstrap: Skipping LDS config (HTTP filters disabled)");
+            ""
+        };
+
+        // Build static listeners section only if HTTP filters are disabled
+        let static_listeners_config = if !app_config.control_plane.http_filters.enabled {
+            tracing::info!("📝 Bootstrap: Adding static listeners (HTTP filters disabled)");
+            format!(r#"
+  # Define the main listener that will proxy client requests (static config only when filters disabled)
+  listeners:
+  - name: {}
+    address:
+      socket_address:
+        protocol: {}
+        address: {}
+        port_value: {}
+    filter_chains:
+    - filters:
+      - name: {}
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          stat_prefix: {}
+          # Get routes dynamically from our control plane
+          rds:
+            config_source:
+              ads: {{}}
+              resource_api_version: V3
+            route_config_name: {}
+          http_filters:
+          - name: {}
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router"#,
+                app_config.envoy_generation.bootstrap.main_listener_name,
+                app_config.envoy_generation.cluster.default_protocol,
+                app_config.envoy_generation.listener.binding_address,
+                app_config.envoy_generation.listener.default_port,
+                app_config.envoy_generation.http_filters.hcm_filter_name,
+                app_config.envoy_generation.http_filters.stat_prefix,
+                app_config.envoy_generation.naming.route_config_name,
+                app_config.envoy_generation.http_filters.router_filter_name,
+            )
+        } else {
+            tracing::info!("📝 Bootstrap: Skipping static listeners (HTTP filters enabled - using LDS)");
+            "".to_string()
+        };
+
         // Build the TLS transport socket configuration if TLS is enabled
         let transport_socket_config = if app_config.control_plane.tls.enabled {
             r#"
@@ -197,7 +256,7 @@ dynamic_resources:
   # Tell Envoy to get clusters via ADS
   cds_config:
     ads: {{}}
-    resource_api_version: V3
+    resource_api_version: V3{}
 
 static_resources:
   # Define how to connect to our control plane
@@ -215,32 +274,7 @@ static_resources:
               socket_address:
                 address: {}
                 port_value: {}
-    connect_timeout: {}s{}
-    
-  # Define the main listener that will proxy client requests
-  listeners:
-  - name: {}
-    address:
-      socket_address:
-        protocol: {}
-        address: {}
-        port_value: {}
-    filter_chains:
-    - filters:
-      - name: {}
-        typed_config:
-          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
-          stat_prefix: {}
-          # Get routes dynamically from our control plane
-          rds:
-            config_source:
-              ads: {{}}
-              resource_api_version: V3
-            route_config_name: {}
-          http_filters:
-          - name: {}
-            typed_config:
-              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+    connect_timeout: {}s{}{}
 
 # Enable admin interface for debugging
 admin:
@@ -256,6 +290,7 @@ admin:
                 .envoy_generation
                 .bootstrap
                 .control_plane_cluster_name,
+            lds_config,
             app_config
                 .envoy_generation
                 .bootstrap
@@ -269,14 +304,7 @@ admin:
             app_config.control_plane.server.xds_port,
             app_config.envoy_generation.cluster.connect_timeout_seconds,
             transport_socket_config,
-            app_config.envoy_generation.bootstrap.main_listener_name,
-            app_config.envoy_generation.cluster.default_protocol,
-            app_config.envoy_generation.listener.binding_address,
-            app_config.envoy_generation.listener.default_port,
-            app_config.envoy_generation.http_filters.hcm_filter_name,
-            app_config.envoy_generation.http_filters.stat_prefix,
-            app_config.envoy_generation.naming.route_config_name,
-            app_config.envoy_generation.http_filters.router_filter_name,
+            static_listeners_config,
             app_config.envoy_generation.admin.host,
             app_config.envoy_generation.admin.port,
         );

@@ -43,6 +43,7 @@ control_plane:
       max_routes: 100               # Smaller limits for e2e tests
       max_clusters: 50              # Smaller limits for e2e tests
       max_endpoints_per_cluster: 10 # Smaller limits for e2e tests
+      max_http_filters: 20          # Smaller limits for e2e tests
     behavior:
       reject_on_capacity: false     # More permissive for tests
       enable_metrics: false         # Disabled for tests to reduce noise
